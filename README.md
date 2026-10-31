@@ -15,12 +15,12 @@ macOS only. Plain bash, no dependencies beyond what ships with macOS.
 ## How it works
 
 ```
-Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller ──▶ browser / Claude
+Claude Code hooks ──▶ ~/.doomscroller/claude-status ──▶ doomscroller ──▶ browser / Claude
 ```
 
 1. **Hook** ([hooks/session-status.sh](hooks/session-status.sh)). Claude Code
    runs it on its lifecycle events. It keeps one line per open session in
-   `~/Desktop/claude-status.txt`:
+   `~/.doomscroller/claude-status`:
    - `busy` when you send a prompt and after every tool call;
    - `waiting` when Claude asks for permission or input;
    - `idle` when a session starts or Claude finishes its turn;
@@ -86,7 +86,7 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
    ```
 
    Sessions started after this change will show up in
-   `~/Desktop/claude-status.txt`.
+   `~/.doomscroller/claude-status`.
 
 3. Allow two permissions for the app you run `doomscroller` from (Terminal,
    iTerm, Claude…). Both are in System Settings → Privacy & Security:
@@ -175,7 +175,7 @@ browser setup.
   box has focus, the space is typed into it instead.
 - **Stale busy lines.** If a session crashes without its `SessionEnd` hook, its
   `busy` line stays in the status file and doomscroller thinks Claude is still
-  working. Delete that line from `~/Desktop/claude-status.txt`.
+  working. Delete that line from `~/.doomscroller/claude-status`.
 - **Reels sound and autoscroll depend on the sites' pages.** They find
   buttons by their labels (`Audio is muted`, `Press to play`,
   `Navigate to next reel`) or by YouTube's element id, so a redesign can
@@ -191,9 +191,9 @@ browser setup.
 
 ## Files
 
-| Path                          | What                                     |
-|-------------------------------|------------------------------------------|
-| `~/Desktop/claude-status.txt` | session states, written by the hook      |
-| `~/.doomscroller/config`      | settings (`key=value` lines)             |
-| `~/.doomscroller/log`         | background watcher log                   |
-| `~/.doomscroller/pid`         | pid of the running watcher               |
+| Path                            | What                                |
+|---------------------------------|-------------------------------------|
+| `~/.doomscroller/claude-status` | session states, written by the hook |
+| `~/.doomscroller/config`        | settings (`key=value` lines)        |
+| `~/.doomscroller/log`           | background watcher log              |
+| `~/.doomscroller/pid`           | pid of the running watcher          |

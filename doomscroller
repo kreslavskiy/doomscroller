@@ -3,7 +3,7 @@
 # when it stops (idle or waiting for you), pause the video and bring Claude
 # back to the front.
 #
-# Reads ~/Desktop/claude-status.txt, kept by hooks/session-status.sh.
+# Reads ~/.doomscroller/claude-status, kept by hooks/session-status.sh.
 # Commands, flags and settings: run doomscroller --help.
 # How the code is laid out: CLAUDE.md.
 

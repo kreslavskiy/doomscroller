@@ -1,10 +1,11 @@
 #!/bin/bash
-# Keeps ~/Desktop/claude-status.txt: one line per open Claude Code session.
+# Keeps ~/.doomscroller/claude-status: one line per open Claude Code session.
 # Usage: session-status.sh <busy|waiting|idle|end>, hook JSON on stdin.
 
 state="$1"
-status_file="$HOME/Desktop/claude-status.txt"
+status_file="$HOME/.doomscroller/claude-status"
 lock_dir="$status_file.lock"
+mkdir -p "$(dirname "$status_file")"
 
 input=$(cat)
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty')

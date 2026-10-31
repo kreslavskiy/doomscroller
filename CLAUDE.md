@@ -8,7 +8,7 @@ docs.
 ## Architecture
 
 ```
-hooks/session-status.sh ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller (watcher) ──▶ browser tab / Claude app
+hooks/session-status.sh ──▶ ~/.doomscroller/claude-status ──▶ doomscroller (watcher) ──▶ browser tab / Claude app
    (Claude Code hook)            (one line per session)        polls every second
 ```
 
@@ -75,8 +75,10 @@ settings so flags survive.
 ### The hook
 
 `hooks/session-status.sh <busy|waiting|idle|end>` gets the hook JSON on
-stdin. It keeps one tab-separated line per session:
-`state  time  session_id  cwd`. `end` removes the line. A `mkdir` lock
+stdin. It keeps `~/.doomscroller/claude-status` (creating the folder if
+needed) with one tab-separated line per session:
+`state  time  session_id  cwd`. `end` removes the line. The path is written
+both in the hook and in `STATUS_FILE` (core.sh): change them together. A `mkdir` lock
 protects the file from parallel sessions, and it is replaced atomically. It is
 wired to SessionStart/Stop (idle), UserPromptSubmit/PostToolUse (busy),
 Notification (waiting) and SessionEnd (end) in `~/.claude/settings.json`.
