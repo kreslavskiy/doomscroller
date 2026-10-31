@@ -23,8 +23,8 @@ lib/
   browser.sh            AppleScript for tabs: show_page (find/reuse/open the tab), run_tab_js, page_js
   player.sh             the video: pause_video, unmute_reels, start_autoscroll
   watcher.sh            the process: watch_claude loop, start_watcher (background), run_watcher_here (-w), stop_watcher
-  setup.sh              doomscroller init: link the command and hook, merge the hook into ~/.claude/settings.json, ask preferences, check permissions
-  cli.sh                usage, cmd_init/cmd_start/cmd_status/cmd_config, main (command dispatch)
+  setup.sh              init (put the command on PATH, copy the hook, merge it into ~/.claude/settings.json, ask preferences, check permissions) and uninstall
+  cli.sh                usage, version, cmd_init/cmd_uninstall/cmd_start/cmd_status/cmd_config, main (command dispatch)
   page/*.js             JavaScript run inside the feed's tab (via run_tab_js)
     reels-check.js        is a reel on screen, and does it need sound?
     reels-unmute.js       click Instagram's sound button
@@ -33,6 +33,7 @@ lib/
   jxa/play-pause-key.js JavaScript for Automation, run by osascript: posts the media play/pause key
   jxa/is-trusted.js     prints whether the running app has Accessibility access (for init)
 hooks/session-status.sh the Claude Code hook (see below)
+package.json            the npm package: name, version (the only place it's kept), bin, files
 ```
 
 ### Layers and dependencies
@@ -69,8 +70,9 @@ Set once, then read by everyone:
 
 ### Commands
 
-`init [--yes]`, `start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
-`status`, `config [list|get|set|unset]` and `--help`. There is also an
+`init [--yes]`, `uninstall [--yes]`,
+`start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
+`status`, `config [list|get|set|unset]`, `--help` and `--version`. There is also an
 internal `_watch <site> <autoscroll> <url>`. `start_watcher` re-runs the
 command with it as the background process, passing the already-resolved
 settings so flags survive.
@@ -89,6 +91,17 @@ prints ✓ if there's nothing to do, so it's safe to re-run. Rules for it:
 - Prompts go to stderr, because `choose` prints the answer on stdout to be
   captured. `ASSUME_YES` (`--yes`) takes every default without reading stdin.
 - `HOOK_COMMAND` and `HOOK_EVENTS` must match the JSON snippet in README.md.
+- **The hook is copied, not linked.** npm replaces or deletes the package
+  on update or uninstall, and a link into it would break every Claude
+  session's hooks. `init` recognizes its own hook by the
+  `doomscroller/claude-status` path inside it and offers to update an older
+  copy. A link to the running checkout also counts as installed (that's
+  how the dev setup works).
+- `uninstall` (`cmd_uninstall`, then `run_uninstall`) undoes `init`: it
+  stops the watcher, removes every hook command matching `OUR_HOOK_COMMAND`
+  from settings.json (dropping events left empty), deletes the hook if it's
+  ours and deletes `~/.doomscroller`. An npm-installed command belongs to
+  npm, so it only prints `npm uninstall -g`.
 
 ### The hook
 
@@ -104,10 +117,26 @@ Notification (waiting) and SessionEnd (end) in `~/.claude/settings.json`.
 
 ### Installed copies are symlinks
 
-`/opt/homebrew/bin/doomscroller` points to `doomscroller`, and
-`~/.claude/hooks/session-status.sh` points to `hooks/session-status.sh`.
-**Editing the files here changes the live tool.** A watcher that is already
-running keeps the old code until it is restarted.
+On the user's machine, `/opt/homebrew/bin/doomscroller` points to
+`doomscroller`, and `~/.claude/hooks/session-status.sh` points to
+`hooks/session-status.sh` (set up by hand; `init` copies the hook instead
+but accepts this link). **Editing the files here changes the live tool.** A
+watcher that is already running keeps the old code until it is restarted.
+
+### Releasing to npm
+
+The package is `doomscroller` on npm. Users run `npm install -g
+doomscroller`. npm links its `bin` to `doomscroller`, and the entry point
+follows that link to `lib/`. `files` in package.json limits what ships to
+`doomscroller`, `lib/` and `hooks/` (plus README.md and package.json).
+
+1. Bump `version` in package.json, the only place it lives. `--version`
+   reads it from there, so keep the `  "version": "x.y.z",` line format.
+2. Check what ships: `npm pack --dry-run`. To test an install without
+   touching the real one, use `npm i -g <tarball> --prefix <tmp>` and a
+   throwaway `HOME`.
+3. Commit, tag `vX.Y.Z`, push with tags, and run `npm publish`.
+   `prepublishOnly` runs `npm test`, which is `bash -n` on every script.
 
 ## How the watcher works
 

@@ -10,21 +10,23 @@ When Claude starts working, opens the page in $BROWSER. When it stops
 
 Usage:
   doomscroller init [--yes]
+  doomscroller uninstall [--yes]
   doomscroller start [--reels | --shorts] [--autoscroll | --no-autoscroll] [--watch] [url]
   doomscroller stop
   doomscroller status
   doomscroller config [list | get <key> | set <key> <value> | unset <key>]
-  doomscroller --help
+  doomscroller --help | --version
 
 Commands:
-  init         set up: link the command and the Claude Code hook, choose your
-               feed, browser and apps, check permissions. Safe to run again
+  init         set up: install the Claude Code hook, choose your feed, browser
+               and apps, check permissions. Safe to run again
+  uninstall    remove the hook from Claude Code, the settings and the log
   start        start watching in the background (log: ~/.doomscroller/log)
   stop         stop watching
   status       show whether it's running and what Claude is doing
   config       show or change settings (saved in ~/.doomscroller/config)
 
-Flags for init:
+Flags for init and uninstall:
   -y, --yes    don't ask: take the answer in [brackets] everywhere
 
 Flags for start:
@@ -82,8 +84,8 @@ cmd_start() {
   fi
 }
 
-# doomscroller init [--yes]
-cmd_init() {
+# Flags for init and uninstall: --yes, --help.
+parse_setup_flags() {
   local arg
   for arg in "$@"; do
     case "$arg" in
@@ -92,6 +94,16 @@ cmd_init() {
       *) usage >&2; exit 1 ;;
     esac
   done
+}
+
+# Prints the version, kept only in package.json.
+version() {
+  sed -n 's/^  "version": "\(.*\)",$/\1/p' "$(dirname "$LIB_DIR")/package.json"
+}
+
+# doomscroller init [--yes]
+cmd_init() {
+  parse_setup_flags "$@"
   run_setup
   step "5. Start"
   if is_running; then
@@ -104,6 +116,18 @@ cmd_init() {
   else
     echo "   Start it later with: doomscroller start"
   fi
+}
+
+# doomscroller uninstall [--yes]
+cmd_uninstall() {
+  parse_setup_flags "$@"
+  echo "Removing doomscroller. Press Enter to take the answer in [brackets]."
+  if is_running; then
+    step "Watcher"
+    printf '   '
+    stop_watcher
+  fi
+  run_uninstall
 }
 
 cmd_status() {
@@ -161,6 +185,7 @@ cmd_config() {
 main() {
   case "$1" in
     init)   cmd_init "${@:2}" ;;
+    uninstall) cmd_uninstall "${@:2}" ;;
     start)  cmd_start "${@:2}" ;;
     stop)   stop_watcher ;;
     status) cmd_status ;;
@@ -171,6 +196,7 @@ main() {
       AUTOSCROLL="$3"
       watch_claude "$4" ;;
     -h|--help|help) usage ;;
+    -v|--version|version) version ;;
     *) usage >&2; exit 1 ;;
   esac
 }

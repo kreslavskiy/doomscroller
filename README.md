@@ -55,18 +55,19 @@ Claude Code hooks ──▶ ~/.doomscroller/claude-status ──▶ doomscroller
 ## Install
 
 ```bash
-git clone https://github.com/kreslavskiy/doomscroller.git ~/Developer/doomscroller
+npm install -g doomscroller
 ```
 
 ```bash
-~/Developer/doomscroller/doomscroller init
+doomscroller init
 ```
 
 `init` walks you through the setup and asks before changing anything:
 
-1. Links `doomscroller` into a folder on your `PATH` (`/opt/homebrew/bin`,
+1. Checks that `doomscroller` is on your `PATH`. When you run it from a
+   clone, it links it into a folder there (`/opt/homebrew/bin`,
    `/usr/local/bin`, `~/.local/bin` or `~/bin`, whichever you can write to).
-2. Links the hook into `~/.claude/hooks` and adds it to
+2. Copies the hook into `~/.claude/hooks` and adds it to
    `~/.claude/settings.json`, keeping your other settings. The old file is
    saved as `settings.json.bak`.
 3. Asks for your feed (Reels or Shorts), browser, the app to come back to,
@@ -77,13 +78,42 @@ git clone https://github.com/kreslavskiy/doomscroller.git ~/Developer/doomscroll
 
 Run it from the app you'll run `doomscroller` from, since that's the app the
 permissions go to. It's safe to run again: finished steps show a ✓ and are
-skipped. `init --yes` takes the default answer everywhere.
+skipped. `init --yes` takes the default answer everywhere. After an
+update (`npm update -g doomscroller`), run `init` again to refresh the hook.
 
 The hook needs `jq`, which macOS 15 and later include.
 
+### From source
+
+To change the code, clone the repo and run `init` from it. It links the
+command to your clone, so your edits take effect right away:
+
+```bash
+git clone https://github.com/kreslavskiy/doomscroller.git ~/Developer/doomscroller
+```
+
+```bash
+~/Developer/doomscroller/doomscroller init
+```
+
+### Uninstall
+
+```bash
+doomscroller uninstall
+```
+
+```bash
+npm uninstall -g doomscroller
+```
+
+`uninstall` stops the watcher, takes the hook out of
+`~/.claude/settings.json` (keeping a `.bak`) and `~/.claude/hooks`, and
+deletes `~/.doomscroller`. Do it before `npm uninstall`, which doesn't touch
+any of these.
+
 ### Manual setup
 
-What `init` does, by hand:
+What `init` does, by hand, for a clone:
 
 1. Put `doomscroller` on your `PATH`:
 
@@ -152,6 +182,7 @@ doomscroller start -w           # stay in the terminal and log Claude's state ev
 doomscroller status             # running? what is Claude doing?
 doomscroller stop
 doomscroller --help
+doomscroller --version
 ```
 
 `start` also takes a URL to open instead of the feed. It gets paused the same
@@ -255,3 +286,7 @@ granting:
 | `~/.doomscroller/config`        | settings (`key=value` lines)        |
 | `~/.doomscroller/log`           | background watcher log              |
 | `~/.doomscroller/pid`           | pid of the running watcher          |
+
+## License
+
+[MIT](LICENSE)

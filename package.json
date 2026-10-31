@@ -1,0 +1,37 @@
+{
+  "name": "doomscroller",
+  "version": "0.1.0",
+  "description": "Watch Instagram Reels or YouTube Shorts while Claude Code works, and get pulled back the moment it needs you.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "hooks",
+    "reels",
+    "shorts",
+    "macos",
+    "cli"
+  ],
+  "homepage": "https://github.com/kreslavskiy/doomscroller#readme",
+  "bugs": "https://github.com/kreslavskiy/doomscroller/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kreslavskiy/doomscroller.git"
+  },
+  "author": "Mykhailo Kreslavskyi",
+  "license": "MIT",
+  "bin": {
+    "doomscroller": "doomscroller"
+  },
+  "files": [
+    "doomscroller",
+    "lib/",
+    "hooks/"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "scripts": {
+    "test": "for f in doomscroller lib/*.sh hooks/*.sh; do bash -n \"$f\" || exit 1; done",
+    "prepublishOnly": "npm test"
+  }
+}

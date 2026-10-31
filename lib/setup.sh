@@ -1,11 +1,12 @@
-# doomscroller init: links the command and the Claude Code hook, adds the
-# hook to Claude's settings, asks for preferences and checks permissions.
-# Every step looks before it acts and asks before changing anything outside
-# ~/.doomscroller, so running it again is safe.
+# doomscroller init and uninstall. init puts the command on the PATH, copies
+# the Claude Code hook and adds it to Claude's settings, asks for preferences
+# and checks permissions; uninstall takes all of that back out. Every step
+# looks before it acts and asks before changing anything outside
+# ~/.doomscroller, so running either again is safe.
 
 CLAUDE_DIR="$HOME/.claude"
 CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
-HOOK_LINK="$CLAUDE_DIR/hooks/session-status.sh"
+HOOK_FILE="$CLAUDE_DIR/hooks/session-status.sh"
 # How settings.json refers to the hook: the same string the README shows.
 HOOK_COMMAND="~/.claude/hooks/session-status.sh"
 # Claude Code events and the state the hook writes for each.
@@ -135,23 +136,44 @@ setup_command() {
   ln -s "$target" "$dir/doomscroller" && ok "linked $(short "$dir/doomscroller")"
 }
 
-# Links the hook script into ~/.claude/hooks. An existing file there is only
+# Succeeds if a file is some version of doomscroller's hook.
+is_our_hook() {
+  [ -f "$1" ] && grep -q 'doomscroller/claude-status' "$1"
+}
+
+# Puts a copy of the hook in ~/.claude/hooks. A copy rather than a link,
+# because npm may move or delete the package on an update, and a link into it
+# would break Claude's hooks. A link to this checkout (a clone set up by hand)
+# counts too. An older copy is offered an update; anyone else's file is only
 # replaced when you say so, and kept as .bak.
-setup_hook_link() {
-  local target
-  target="$(dirname "$LIB_DIR")/hooks/session-status.sh"
-  if [ -e "$HOOK_LINK" ] && [ "$(real_path "$HOOK_LINK")" = "$(real_path "$target")" ]; then
-    ok "$(short "$HOOK_LINK") links here"
+setup_hook_file() {
+  local source
+  source="$(dirname "$LIB_DIR")/hooks/session-status.sh"
+  if [ -e "$HOOK_FILE" ] && [ "$(real_path "$HOOK_FILE")" = "$(real_path "$source")" ]; then
+    ok "$(short "$HOOK_FILE") links to this checkout"
     return
   fi
-  if [ -e "$HOOK_LINK" ] || [ -L "$HOOK_LINK" ]; then
-    bad "$(short "$HOOK_LINK") exists and isn't doomscroller's hook"
+  if [ -L "$HOOK_FILE" ] && [ ! -e "$HOOK_FILE" ]; then
+    bad "$(short "$HOOK_FILE") is a broken link"
+    ask_yes "Replace it with the hook?" || return
+  elif [ -e "$HOOK_FILE" ] && cmp -s "$HOOK_FILE" "$source"; then
+    ok "$(short "$HOOK_FILE") is up to date"
+    return
+  elif is_our_hook "$HOOK_FILE"; then
+    bad "$(short "$HOOK_FILE") is an older version of the hook"
+    ask_yes "Update it?" || return
+  elif [ -e "$HOOK_FILE" ]; then
+    bad "$(short "$HOOK_FILE") exists and isn't doomscroller's hook"
     ask_yes "Replace it? The old one is kept as session-status.sh.bak" n || return
-    mv "$HOOK_LINK" "$HOOK_LINK.bak"
+    mv "$HOOK_FILE" "$HOOK_FILE.bak"
   else
-    ask_yes "Link the hook into $(short "$CLAUDE_DIR/hooks")?" || return
+    ask_yes "Copy the hook into $(short "$CLAUDE_DIR/hooks")?" || return
   fi
-  mkdir -p "$(dirname "$HOOK_LINK")" && ln -s "$target" "$HOOK_LINK" && ok "linked $(short "$HOOK_LINK")"
+  # Removed first, so a link to another checkout is replaced, not written through.
+  rm -f "$HOOK_FILE"
+  mkdir -p "$(dirname "$HOOK_FILE")" &&
+    cp "$source" "$HOOK_FILE" && chmod +x "$HOOK_FILE" &&
+    ok "copied the hook to $(short "$HOOK_FILE")"
 }
 
 # Succeeds if settings.json runs the hook with this state on this event.
@@ -276,10 +298,89 @@ run_setup() {
   step "1. Command"
   setup_command
   step "2. Claude Code hook"
-  setup_hook_link
+  setup_hook_file
   setup_hook_settings
   step "3. Preferences"
   setup_preferences
   step "4. Permissions"
   setup_permissions
+}
+
+# The jq test for a hook command init adds, by any path to the hook.
+OUR_HOOK_COMMAND='(.command // "") | test("session-status\\.sh (busy|waiting|idle|end)$")'
+
+# Removes the hook from every event in ~/.claude/settings.json, and events
+# left empty, keeping everything else. The old file is kept as .bak.
+uninstall_hook_settings() {
+  local count tmp
+  if [ ! -s "$CLAUDE_SETTINGS" ] || ! command -v jq > /dev/null; then
+    ok "no hook in $(short "$CLAUDE_SETTINGS")"
+    return
+  fi
+  if ! count=$(jq "[.hooks[]?[]?.hooks[]? | select($OUR_HOOK_COMMAND)] | length" "$CLAUDE_SETTINGS" 2> /dev/null); then
+    bad "can't parse $(short "$CLAUDE_SETTINGS"). Remove the session-status.sh hooks by hand"
+    return
+  fi
+  if [ "$count" = 0 ]; then
+    ok "no hook in $(short "$CLAUDE_SETTINGS")"
+    return
+  fi
+  ask_yes "Remove the hook from $(short "$CLAUDE_SETTINGS") ($count entries)?" || return
+  cp "$CLAUDE_SETTINGS" "$CLAUDE_SETTINGS.bak"
+  tmp=$(mktemp "$CLAUDE_SETTINGS.XXXXXX")
+  jq "def ours: $OUR_HOOK_COMMAND;
+      .hooks |= with_entries(
+        .value |= map(.hooks |= map(select(ours | not)) | select(.hooks | length > 0))
+        | select(.value | length > 0))
+      | if .hooks == {} then del(.hooks) else . end" "$CLAUDE_SETTINGS" > "$tmp" &&
+    cat "$tmp" > "$CLAUDE_SETTINGS"
+  rm -f "$tmp"
+  ok "removed the hook; the previous settings are in $(short "$CLAUDE_SETTINGS.bak")"
+  note "Restart open Claude Code sessions, which still have the old hooks"
+}
+
+# Deletes the hook from ~/.claude/hooks, if it's doomscroller's.
+uninstall_hook_file() {
+  if [ ! -e "$HOOK_FILE" ] && [ ! -L "$HOOK_FILE" ]; then
+    ok "no hook in $(short "$CLAUDE_DIR/hooks")"
+  elif [ -L "$HOOK_FILE" ] || is_our_hook "$HOOK_FILE"; then
+    ask_yes "Delete $(short "$HOOK_FILE")?" && rm -f "$HOOK_FILE" && ok "deleted $(short "$HOOK_FILE")"
+  else
+    ok "$(short "$HOOK_FILE") isn't doomscroller's; left alone"
+  fi
+  if [ -e "$HOOK_FILE.bak" ]; then
+    note "the file it replaced is $(short "$HOOK_FILE.bak"); rename it back if you want it"
+  fi
+}
+
+# Removes the link setup_command made. Installed with npm, the command
+# belongs to npm, which removes it itself.
+uninstall_command() {
+  local found
+  found=$(command -v doomscroller)
+  case "$(real_path "$LIB_DIR")" in
+    */node_modules/*)
+      note "Last, remove the package: npm uninstall -g doomscroller"
+      return ;;
+  esac
+  if [ -L "$found" ] && [ "$(real_path "$found")" = "$(real_path "$(dirname "$LIB_DIR")/doomscroller")" ]; then
+    ask_yes "Delete the link $(short "$found")?" && rm -f "$found" && ok "deleted $(short "$found")"
+  fi
+  note "The code itself stays in $(short "$(dirname "$LIB_DIR")")"
+}
+
+# Runs every uninstall step. Stopping the watcher first is up to the caller.
+run_uninstall() {
+  step "Claude Code hook"
+  uninstall_hook_settings
+  uninstall_hook_file
+  step "Settings and log"
+  if [ -d "$STATE_DIR" ]; then
+    ask_yes "Delete $(short "$STATE_DIR") (your settings and the log)?" &&
+      rm -rf "$STATE_DIR" && ok "deleted $(short "$STATE_DIR")"
+  else
+    ok "no $(short "$STATE_DIR")"
+  fi
+  step "Command"
+  uninstall_command
 }
