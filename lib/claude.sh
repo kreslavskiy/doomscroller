@@ -11,7 +11,7 @@ claude_state() {
 }
 
 # Prints every session's state with its folder name,
-# e.g. "busy doomscroller, idle main-backend".
+# e.g. "busy doomscroller, idle my-project".
 session_states() {
   [ -f "$STATUS_FILE" ] || { echo "no sessions"; return; }
   awk -F'\t' '{ n = split($4, dir, "/"); printf "%s%s %s", (NR > 1 ? ", " : ""), $1, dir[n] }

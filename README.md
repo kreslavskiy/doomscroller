@@ -124,9 +124,9 @@ mode (`-w`) it prints to the terminal instead, including every poll:
 
 ```
 14:26:47 watching, Claude is idle
-14:26:48 busy | idle main-backend, busy doomscroller
+14:26:48 busy | idle my-project, busy doomscroller
 14:26:48 busy -> Arc
-14:26:51 idle | idle main-backend, idle doomscroller
+14:26:51 idle | idle my-project, idle doomscroller
 14:26:51 idle -> Claude
 14:26:51 paused video (play key)
 ```
@@ -166,6 +166,26 @@ How each site gets paused:
 
 Autoscroll runs JavaScript in the tab, like Reels sound, so it needs the same
 browser setup.
+
+## Security
+
+doomscroller makes no network requests of its own. In the browser it only
+touches the feed's tab: the video player and its buttons. Its config is
+parsed, never executed. But the permissions it needs are broad, so know what you're
+granting:
+
+- **Accessibility and Automation go to the whole app you run it from,** not
+  to doomscroller. If that's Terminal, any script you run in Terminal can
+  then press keys and control your browser without asking again. To limit
+  this, run doomscroller from a terminal app you don't use for anything
+  else, and remove the permissions when you stop using it.
+- **"Allow JavaScript from Apple Events"** (needed in Chrome-like browsers
+  and Safari for Reels sound and autoscroll) lets any app with Automation
+  access to the browser run JavaScript in every tab, including tabs where
+  you're logged in. Arc allows this without a setting. Leave the option off
+  if you don't need those two features. Tab switching and pausing work
+  without it.
+- The hook and the watcher write only to `~/.doomscroller/`.
 
 ## Caveats
 
