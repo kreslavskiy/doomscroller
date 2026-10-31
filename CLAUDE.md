@@ -8,9 +8,10 @@ docs.
 ## Layout
 
 - `doomscroller`: the whole CLI in a single bash script. It handles
-  `start [--reels|--shorts] [-w] [url]`, `stop`, `status`, `config …` and
-  `--help`, plus an internal `_watch <site> <url>` entry point that the
-  background process runs.
+  `start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
+  `status`, `config …` and `--help`, plus an internal
+  `_watch <site> <autoscroll> <url>` entry point that the background process
+  runs.
 - `hooks/session-status.sh`: the Claude Code hook. It writes
   `~/Desktop/claude-status.txt` with one tab-separated line per session:
   `state  time  session_id  cwd`. The state is `busy`, `waiting` or `idle`.
@@ -38,6 +39,12 @@ running keeps the old code until it is restarted.
   loaded page. It polls `REELS_CHECK_JS` until a reel is on screen, presses
   F13, runs `REELS_UNMUTE_JS`, then retries `REELS_PLAY_JS` until the reel
   plays. The `window.__doomscroller` mark limits this to once per page load.
+- busy with autoscroll on: `start_autoscroll` injects `AUTOSCROLL_JS` into
+  the tab once per page load (`window.__doomscrollerScroll`). From then on,
+  the page clicks the site's `NEXT_BUTTON` (set in `use_site`) whenever the
+  on-screen video finishes. Bash doesn't poll for it.
+- The feed's tab is chosen by `FIND_TAB_START`, shared by both AppleScripts:
+  first a tab whose URL starts with the feed URL, then any tab on the domain.
 - idle: it presses the site's pause key, but only if the browser is the
   frontmost app, then runs `open -a "$CLAUDE_APP"`.
 - Settings are resolved per key: env var (`DOOMSCROLLER_SITE`, `_BROWSER`,
@@ -84,6 +91,23 @@ running keeps the old code until it is restarted.
   Also, every `execute` runs in the page's global scope, so wrap the JS in
   an IIFE: a second top-level `const` fails and returns `null`. Results come
   back JSON-quoted, and `run_tab_js` strips the quotes.
+- **Autoscroll listens on `document` in the capture phase** (`ended`,
+  `timeupdate`), because both feeds swap `<video>` elements as you scroll.
+  Reels fire `ended` (`loop` is false). Shorts have `loop` set and never fire
+  it, so a jump from the last 1.5 s back to under 1 s counts as finishing.
+  A 2 s debounce keeps one finish from moving two videos.
+- **YouTube labels are localized** (the user's account is Russian: "Следующее
+  видео"). Select YouTube elements by id (`#navigation-button-down button`).
+  Instagram's labels are English for this user, and nothing else to select by
+  has been found.
+- `AUTOSCROLL_JS` returns `"wrong page"` while the tab still shows the
+  previous page, for example right after it was pointed at the feed.
+  Otherwise the script would install itself into the page that is about to
+  be replaced.
+- **Instagram keeps reels paused while the browser window isn't focused.**
+  Testing playback with Claude in front doesn't work. Test autoscroll by
+  dispatching `new Event("ended")` on the visible video instead. On Shorts,
+  seeking to `duration - 2` works in a background tab (`open -g -a Arc …`).
 - Pressing keys needs Accessibility access, and reading tabs needs Automation
   access to the browser. Both are granted to the *responsible* app, meaning
   the one the user launched doomscroller from, not doomscroller itself.

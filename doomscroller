@@ -15,7 +15,7 @@ PID_FILE="$STATE_DIR/pid"
 LOG_FILE="$STATE_DIR/log"
 CONFIG_FILE="$STATE_DIR/config"
 
-CONFIG_KEYS="site browser claude-app"
+CONFIG_KEYS="site browser claude-app autoscroll"
 
 # Prints a setting's environment variable and default, e.g. "DOOMSCROLLER_SITE reels".
 setting_info() {
@@ -23,6 +23,7 @@ setting_info() {
     site)       echo "DOOMSCROLLER_SITE reels" ;;
     browser)    echo "DOOMSCROLLER_BROWSER Arc" ;;
     claude-app) echo "DOOMSCROLLER_CLAUDE_APP Claude" ;;
+    autoscroll) echo "DOOMSCROLLER_AUTOSCROLL off" ;;
     *) return 1 ;;
   esac
 }
@@ -57,6 +58,7 @@ setting() {
 SITE=$(setting site)
 BROWSER=$(setting browser)
 CLAUDE_APP=$(setting claude-app)
+AUTOSCROLL=$(setting autoscroll)
 
 log() { echo "$(date '+%H:%M:%S') $*"; }
 
@@ -68,7 +70,7 @@ When Claude starts working, opens the page in $BROWSER. When it stops
 (idle or waiting for you), pauses the video and brings $CLAUDE_APP back.
 
 Usage:
-  doomscroller start [--reels | --shorts] [--watch] [url]
+  doomscroller start [--reels | --shorts] [--autoscroll | --no-autoscroll] [--watch] [url]
   doomscroller stop
   doomscroller status
   doomscroller config [list | get <key> | set <key> <value> | unset <key>]
@@ -83,6 +85,8 @@ Commands:
 Flags for start:
   --reels      Instagram Reels, paused with the play/pause key (F8)
   --shorts     YouTube Shorts, paused with space
+  --autoscroll, --no-autoscroll
+               go to the next video when one ends, or don't (beats the config)
   -w, --watch  stay in this terminal and log Claude's state every second
   url          open this page instead, paused like the chosen site
 
@@ -90,13 +94,16 @@ Settings:
   site         reels or shorts (default: reels)
   browser      browser app (default: Arc)
   claude-app   app to return to (default: Claude; e.g. Terminal, iTerm, Ghostty)
+  autoscroll   on or off: go to the next video when one ends (default: off)
 
   Examples: doomscroller config set site shorts
             doomscroller config set browser Google Chrome
+            doomscroller config set autoscroll on
             doomscroller config unset browser
 
   For one run, environment variables override the config:
-  DOOMSCROLLER_SITE, DOOMSCROLLER_BROWSER, DOOMSCROLLER_CLAUDE_APP.
+  DOOMSCROLLER_SITE, DOOMSCROLLER_BROWSER, DOOMSCROLLER_CLAUDE_APP,
+  DOOMSCROLLER_AUTOSCROLL. Flags for start beat both.
 
 Pausing presses keys, which needs Accessibility access for the app you run
 doomscroller from (System Settings > Privacy & Security > Accessibility).
@@ -106,8 +113,11 @@ EOF
 # Sets URL and PAUSE_KEY for a site.
 use_site() {
   case "$1" in
-    reels)  URL="https://www.instagram.com/reels/"; PAUSE_KEY=play ;;
-    shorts) URL="https://www.youtube.com/shorts";   PAUSE_KEY=space ;;
+    reels)  URL="https://www.instagram.com/reels/"; PAUSE_KEY=play
+            NEXT_BUTTON='[aria-label="Navigate to next reel"]' ;;
+    # YouTube's labels follow the account language, so go by id instead.
+    shorts) URL="https://www.youtube.com/shorts";   PAUSE_KEY=space
+            NEXT_BUTTON='#navigation-button-down button' ;;
     *) echo "unknown site: $1 (use reels or shorts)"; exit 1 ;;
   esac
   SITE="$1"
@@ -127,6 +137,8 @@ validate_setting() {
   case "$1" in
     site)
       [ "$2" = reels ] || [ "$2" = shorts ] || { echo "site must be reels or shorts"; return 1; } ;;
+    autoscroll)
+      [ "$2" = on ] || [ "$2" = off ] || { echo "autoscroll must be on or off"; return 1; } ;;
     browser|claude-app)
       app_exists "$2" || { echo "app not found: $2.app (looked in /Applications, ~/Applications and /System/Applications)"; return 1; } ;;
   esac
@@ -248,7 +260,20 @@ url_host() {
   echo "$1" | sed -E 's#^[a-z]+://##; s#/.*##; s#^www\.##'
 }
 
-# Prints an AppleScript for $BROWSER that looks for a tab on a domain. If it
+# AppleScript loops that pick the feed's tab: first a tab already on the
+# feed, then any tab on the same site. So a YouTube video you're watching
+# isn't taken over while a Shorts tab is open. Sets w and i to the tab.
+FIND_TAB_START='repeat with pass from 1 to 2
+    repeat with w in windows
+      repeat with i from 1 to count of tabs of w
+        set tab_url to (URL of tab i of w) as text
+        if (pass = 1 and tab_url starts with target_url) or (pass = 2 and (tab_url contains ("://" & site_host & "/") or tab_url contains ("." & site_host & "/"))) then'
+FIND_TAB_END='        end if
+      end repeat
+    end repeat
+  end repeat'
+
+# Prints an AppleScript for $BROWSER that looks for the feed's tab. If it
 # finds one, it points the tab at the target URL (unless the tab is already
 # there, so the current video isn't reloaded), brings it to the front and
 # says "found"; otherwise it says "none". Each browser selects tabs its own
@@ -267,17 +292,12 @@ tab_script() {
   cat <<EOF
 on run {site_host, target_url}
   tell application "$BROWSER"
-    repeat with w in windows
-      repeat with i from 1 to count of tabs of w
-        set tab_url to (URL of tab i of w) as text
-        if tab_url contains ("://" & site_host & "/") or tab_url contains ("." & site_host & "/") then
+    $FIND_TAB_START
           if tab_url does not start with target_url then set URL of tab i of w to target_url
           $select_tab
           activate
           return "found"
-        end if
-      end repeat
-    end repeat
+    $FIND_TAB_END
   end tell
   return "none"
 end run
@@ -307,8 +327,8 @@ show_page() {
   fi
 }
 
-# Prints an AppleScript for $BROWSER that runs JavaScript in the first tab on
-# a domain and returns the result, "no tab", or "timeout": while a page is
+# Prints an AppleScript for $BROWSER that runs JavaScript in the feed's tab
+# and returns the result, "no tab", or "timeout": while a page is
 # still loading, Arc doesn't answer until it's done, which can take a minute.
 # Fails for browsers without JavaScript scripting. Chrome-like browsers also
 # need View > Developer > Allow JavaScript from Apple Events; Arc doesn't.
@@ -321,12 +341,9 @@ tab_js_script() {
     *) return 1 ;;
   esac
   cat <<EOF
-on run {site_host, js}
+on run {site_host, target_url, js}
   tell application "$BROWSER"
-    repeat with w in windows
-      repeat with i from 1 to count of tabs of w
-        set tab_url to (URL of tab i of w) as text
-        if tab_url contains ("://" & site_host & "/") or tab_url contains ("." & site_host & "/") then
+    $FIND_TAB_START
           try
             with timeout of 2 seconds
               return $run_js
@@ -334,20 +351,19 @@ on run {site_host, js}
           on error number -1712
             return "timeout"
           end try
-        end if
-      end repeat
-    end repeat
+    $FIND_TAB_END
   end tell
   return "no tab"
 end run
 EOF
 }
 
-# Runs JavaScript in the tab on a domain and prints the result without quotes.
+# Runs JavaScript in the tab of the feed at a URL and prints the result
+# without quotes. Usage: run_tab_js <url> <javascript>
 run_tab_js() {
   local script
   script=$(tab_js_script) || return 1
-  osascript - "$1" "$2" <<< "$script" 2>&1 | tr -d '"'
+  osascript - "$(url_host "$1")" "$1" "$2" <<< "$script" 2>&1 | tr -d '"'
 }
 
 # Instagram starts a freshly loaded page muted: the browser allows sound only
@@ -398,7 +414,7 @@ unmute_reels() {
   [ "$host" = instagram.com ] || return
   # Wait up to 15 s for the page to load and show a reel.
   while [ $SECONDS -lt $deadline ]; do
-    state=$(run_tab_js "$host" "$REELS_CHECK_JS") || return
+    state=$(run_tab_js "$1" "$REELS_CHECK_JS") || return
     [ "$state" = loading ] || [ "$state" = timeout ] || break
     sleep 0.5
   done
@@ -410,15 +426,76 @@ unmute_reels() {
   [ "$(frontmost_app)" = "$BROWSER" ] || return
   osascript -e 'tell application "System Events" to key code 105' 2>/dev/null \
     || log "can't press keys: allow Accessibility in System Settings > Privacy & Security"
-  result=$(run_tab_js "$host" "$REELS_UNMUTE_JS")
+  result=$(run_tab_js "$1" "$REELS_UNMUTE_JS")
   # Make sure the reel plays: a second later Instagram may have paused it.
   local tries=0 playing=""
   while [ $tries -lt 3 ] && [ "$playing" != playing ]; do
     sleep 1
-    playing=$(run_tab_js "$host" "$REELS_PLAY_JS")
+    playing=$(run_tab_js "$1" "$REELS_PLAY_JS")
     tries=$((tries + 1))
   done
   log "turned on Reels sound ($result, video $playing)"
+}
+
+# Installs autoscroll in the page: when the video on screen finishes, clicks
+# the site's "next" button, or scrolls the feed by a screen if there's none.
+# Called with the feed URL and the button's CSS selector, as in
+# AUTOSCROLL_JS + '("https://…", "selector")'. Says "on", "already on" (once
+# per page load, kept by a mark) or "wrong page" (an old page is still there
+# while the browser navigates to the feed).
+#
+# It listens on the document in the capture phase, so it keeps working while
+# the feed swaps <video> elements. A video counts as finished when it fires
+# "ended" (Reels) or when it jumps from its end back to the start: Shorts
+# loop on their own and never fire "ended". Paused videos never finish, so it
+# stops by itself while Claude is idle.
+AUTOSCROLL_JS='((feedUrl, nextButton) => {
+  if (!location.href.startsWith(feedUrl)) return "wrong page";
+  if (window.__doomscrollerScroll) return "already on";
+  window.__doomscrollerScroll = true;
+  const visible = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.top >= 0 && r.top < innerHeight; };
+  const scroller = e => {
+    while (e && !(e.scrollHeight > e.clientHeight && /auto|scroll/.test(getComputedStyle(e).overflowY))) e = e.parentElement;
+    return e || document.scrollingElement;
+  };
+  let lastStep = 0;
+  const next = video => {
+    // Only the video on screen counts, once: ended and the loop can both fire.
+    if (!visible(video) || performance.now() - lastStep < 2000) return;
+    lastStep = performance.now();
+    const buttons = [...document.querySelectorAll(nextButton)];
+    const button = buttons.find(visible) || buttons[0];
+    if (button) (button.closest("button, [role=button]") || button).click();
+    else scroller(video).scrollBy({ top: innerHeight, behavior: "smooth" });
+  };
+  const lastTime = new WeakMap();
+  document.addEventListener("ended", e => next(e.target), true);
+  document.addEventListener("timeupdate", e => {
+    const video = e.target, before = lastTime.get(video) || 0;
+    lastTime.set(video, video.currentTime);
+    if (before > video.duration - 1.5 && video.currentTime < 1) next(video);
+  }, true);
+  return "on";
+})'
+
+# Installs autoscroll in the feed's tab. Right after opening or redirecting
+# the tab, the old page may still be there or the new one may still load, so
+# it retries for up to 15 s.
+start_autoscroll() {
+  local url="$1" state deadline=$((SECONDS + 15))
+  local js="$AUTOSCROLL_JS(\"$url\", \"${NEXT_BUTTON//\"/\\\"}\")"
+  while [ $SECONDS -lt $deadline ]; do
+    if ! state=$(run_tab_js "$url" "$js"); then
+      log "autoscroll needs a browser that runs JavaScript from AppleScript"
+      return
+    fi
+    case "$state" in
+      on) log "autoscroll on"; return ;;
+      "already on"|"no tab") return ;;
+      timeout|"wrong page") sleep 0.5 ;;
+      *) log "can't start autoscroll: $state"; return ;;
+    esac
+  done
 }
 
 # Acts only when the state changes. With "verbose", also logs every poll.
@@ -435,6 +512,7 @@ watch() {
       log "busy -> $BROWSER"
       show_page "$url"
       unmute_reels "$url"
+      [ "$AUTOSCROLL" = on ] && start_autoscroll "$url"
     else
       log "idle -> $CLAUDE_APP"
       pause_video
@@ -451,6 +529,8 @@ case "$1" in
       case "$arg" in
         --reels) SITE=reels ;;
         --shorts) SITE=shorts ;;
+        --autoscroll) AUTOSCROLL=on ;;
+        --no-autoscroll) AUTOSCROLL=off ;;
         -w|--watch) watch_mode=1 ;;
         -h|--help) usage; exit 0 ;;
         *) [ -n "$arg" ] && custom_url="$arg" ;;
@@ -467,16 +547,16 @@ case "$1" in
       # Watch mode: stay in this terminal and log every poll; Ctrl+C stops it.
       echo $$ > "$PID_FILE"
       trap 'rm -f "$PID_FILE"' EXIT
-      echo "doomscroller watching: $URL in $BROWSER (Ctrl+C to stop)"
+      echo "doomscroller watching: $URL in $BROWSER, autoscroll $AUTOSCROLL (Ctrl+C to stop)"
       watch "$URL" verbose
     fi
     # setsid puts the watcher in its own session, so it survives the shell
     # that started it (the Claude app kills a `!` command's whole group).
     # macOS has no setsid command, hence the perl one-liner.
-    nohup perl -MPOSIX -e 'setsid; exec @ARGV' "$0" _watch "$SITE" "$URL" \
+    nohup perl -MPOSIX -e 'setsid; exec @ARGV' "$0" _watch "$SITE" "$AUTOSCROLL" "$URL" \
       >> "$LOG_FILE" 2>&1 < /dev/null &
     echo $! > "$PID_FILE"
-    echo "doomscroller started: $URL in $BROWSER"
+    echo "doomscroller started: $URL in $BROWSER, autoscroll $AUTOSCROLL"
     ;;
   stop)
     if is_running; then
@@ -496,7 +576,8 @@ case "$1" in
     ;;
   _watch)
     use_site "$2"
-    watch "$3"
+    AUTOSCROLL="$3"
+    watch "$4"
     ;;
   config)
     config_command "${@:2}"

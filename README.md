@@ -27,11 +27,11 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
    - the line is removed when the session ends.
 2. **Watcher** ([doomscroller](doomscroller)). It reads that file once a
    second. Claude counts as busy if any session is busy. On a change:
-   - **idle → busy**: shows the feed in the browser. If a tab on the same
-     site is already open, it switches to that tab and points it at the feed,
-     for example an Instagram profile becomes Reels. A tab already on the feed
-     isn't reloaded, so you keep your place. Without such a tab, it opens a
-     new one.
+   - **idle → busy**: shows the feed in the browser. It prefers a tab
+     already on the feed and doesn't reload it, so you keep your place.
+     Otherwise it takes any tab on the same site and points it at the feed,
+     for example an Instagram profile becomes Reels. Without such a tab, it
+     opens a new one.
 
      On Reels it also turns the sound on. A freshly loaded Instagram page
      starts muted, because the browser allows sound only after you've
@@ -39,6 +39,11 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
      nothing but counts as interaction, then clicks Instagram's own sound
      button and starts the reel. It does this once per page load, so if you
      mute a reel yourself, it stays muted.
+
+     With autoscroll on, it also makes the feed move by itself: when the
+     video on screen finishes, it clicks the site's "next" button. Videos
+     always play to the end. While Claude is idle the video is paused, so the
+     feed stops too.
    - **busy → idle/waiting**: pauses the video if the browser is still in
      front, then switches to the Claude app.
 
@@ -100,6 +105,7 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
 ```bash
 doomscroller start              # Reels (or your configured site), in the background
 doomscroller start --shorts     # YouTube Shorts this time
+doomscroller start --autoscroll # go to the next video when one ends
 doomscroller start -w           # stay in the terminal and log Claude's state every second
 doomscroller status             # running? what is Claude doing?
 doomscroller stop
@@ -128,6 +134,7 @@ doomscroller config                          # show all settings and where each 
 doomscroller config set site shorts
 doomscroller config set browser Google Chrome
 doomscroller config set claude-app iTerm
+doomscroller config set autoscroll on
 doomscroller config get browser
 doomscroller config unset browser            # back to the default
 ```
@@ -137,18 +144,24 @@ doomscroller config unset browser            # back to the default
 | `site`       | `reels`, `shorts`                | `reels`  |
 | `browser`    | any app in `/Applications` etc.  | `Arc`    |
 | `claude-app` | the app to return to             | `Claude` |
+| `autoscroll` | `on`, `off`                      | `off`    |
 
 Settings live in `~/.doomscroller/config`. For a one-off run, the environment
-variables `DOOMSCROLLER_SITE`, `DOOMSCROLLER_BROWSER` and
-`DOOMSCROLLER_CLAUDE_APP` override the config, and `--reels`/`--shorts`
-override `site`. A running watcher picks up changes only after a restart.
+variables `DOOMSCROLLER_SITE`, `DOOMSCROLLER_BROWSER`,
+`DOOMSCROLLER_CLAUDE_APP` and `DOOMSCROLLER_AUTOSCROLL` override the config.
+Flags for `start` beat both: `--reels`/`--shorts` override `site`, and
+`--autoscroll`/`--no-autoscroll` override `autoscroll`. A running watcher
+picks up changes only after a restart.
 
 How each site gets paused:
 
-| Site     | Page                              | Pause key                                |
-|----------|-----------------------------------|------------------------------------------|
-| `reels`  | `https://www.instagram.com/reels/` | media play/pause (F8 on a Mac keyboard) |
-| `shorts` | `https://www.youtube.com/shorts`   | space                                   |
+| Site     | Page                               | Pause key                               | Autoscroll clicks              |
+|----------|------------------------------------|-----------------------------------------|--------------------------------|
+| `reels`  | `https://www.instagram.com/reels/` | media play/pause (F8 on a Mac keyboard) | "Navigate to next reel"        |
+| `shorts` | `https://www.youtube.com/shorts`   | space                                   | the down arrow next to a Short |
+
+Autoscroll runs JavaScript in the tab, like Reels sound, so it needs the same
+browser setup.
 
 ## Caveats
 
@@ -159,9 +172,14 @@ How each site gets paused:
 - **Stale busy lines.** If a session crashes without its `SessionEnd` hook, its
   `busy` line stays in the status file and doomscroller thinks Claude is still
   working. Delete that line from `~/Desktop/claude-status.txt`.
-- **Reels sound depends on Instagram's page.** It finds the sound and play
-  buttons by their labels (`Audio is muted`, `Press to play`), so an
-  Instagram redesign can break it. Reels then just stay muted.
+- **Reels sound and autoscroll depend on the sites' pages.** They find
+  buttons by their labels (`Audio is muted`, `Press to play`,
+  `Navigate to next reel`) or by YouTube's element id, so a redesign can
+  break them. If the "next" button is gone, autoscroll falls back to
+  scrolling the feed by a screen.
+- **Seeking back counts as finishing.** On Shorts, a video that jumps from
+  its last second back to the start counts as finished, because that's how
+  Shorts loop. Rewinding to the start during the last second does the same.
 - **The feed takes over the site's tab.** Every turn sends the Instagram (or
   YouTube) tab back to the feed, even if you were reading DMs there.
 - **Fast replies.** A reply that takes a couple of seconds still sends you to
