@@ -12,6 +12,10 @@ Claude back to the front.
 
 macOS only. Plain bash, no dependencies beyond what ships with macOS.
 
+## Demo
+
+https://github.com/user-attachments/assets/cb48674b-f05c-414f-b751-8142a6e5fb0e
+
 ## How it works
 
 ```
