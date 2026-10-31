@@ -360,7 +360,7 @@ uninstall_command() {
   found=$(command -v doomscroller)
   case "$(real_path "$LIB_DIR")" in
     */node_modules/*)
-      note "Last, remove the package: npm uninstall -g doomscroller"
+      note "Last, remove the package: npm uninstall -g @kreslavskiy/doomscroller"
       return ;;
   esac
   if [ -L "$found" ] && [ "$(real_path "$found")" = "$(real_path "$(dirname "$LIB_DIR")/doomscroller")" ]; then

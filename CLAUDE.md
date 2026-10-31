@@ -125,8 +125,11 @@ watcher that is already running keeps the old code until it is restarted.
 
 ### Releasing to npm
 
-The package is `doomscroller` on npm. Users run `npm install -g
-doomscroller`. npm links its `bin` to `doomscroller`, and the entry point
+The package is `@kreslavskiy/doomscroller` on npm: plain `doomscroller` was
+refused as too close to an existing `doom-scroller`. The command is still
+`doomscroller`, because that's the `bin` name. Users run `npm install -g
+@kreslavskiy/doomscroller`. `publishConfig.access` is `public`, since scoped
+packages are private by default. npm links its `bin` to `doomscroller`, and the entry point
 follows that link to `lib/`. `files` in package.json limits what ships to
 `doomscroller`, `lib/` and `hooks/` (plus README.md and package.json).
 

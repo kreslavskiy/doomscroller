@@ -1,5 +1,5 @@
 {
-  "name": "doomscroller",
+  "name": "@kreslavskiy/doomscroller",
   "version": "0.1.0",
   "description": "Watch Instagram Reels or YouTube Shorts while Claude Code works, and get pulled back the moment it needs you.",
   "keywords": [
@@ -27,6 +27,9 @@
     "lib/",
     "hooks/"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "os": [
     "darwin"
   ],

@@ -55,7 +55,7 @@ Claude Code hooks ──▶ ~/.doomscroller/claude-status ──▶ doomscroller
 ## Install
 
 ```bash
-npm install -g doomscroller
+npm install -g @kreslavskiy/doomscroller
 ```
 
 ```bash
@@ -79,7 +79,7 @@ doomscroller init
 Run it from the app you'll run `doomscroller` from, since that's the app the
 permissions go to. It's safe to run again: finished steps show a ✓ and are
 skipped. `init --yes` takes the default answer everywhere. After an
-update (`npm update -g doomscroller`), run `init` again to refresh the hook.
+update (`npm update -g @kreslavskiy/doomscroller`), run `init` again to refresh the hook.
 
 The hook needs `jq`, which macOS 15 and later include.
 
@@ -103,7 +103,7 @@ doomscroller uninstall
 ```
 
 ```bash
-npm uninstall -g doomscroller
+npm uninstall -g @kreslavskiy/doomscroller
 ```
 
 `uninstall` stops the watcher, takes the hook out of
