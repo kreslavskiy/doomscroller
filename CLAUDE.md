@@ -5,51 +5,112 @@ Claude Code is busy. When Claude goes idle, it pauses the video and switches
 back to Claude. It's a macOS-only bash CLI. See README.md for the user-facing
 docs.
 
-## Layout
+## Architecture
 
-- `doomscroller`: the whole CLI in a single bash script. It handles
-  `start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
-  `status`, `config …` and `--help`, plus an internal
-  `_watch <site> <autoscroll> <url>` entry point that the background process
-  runs.
-- `hooks/session-status.sh`: the Claude Code hook. It writes
-  `~/Desktop/claude-status.txt` with one tab-separated line per session:
-  `state  time  session_id  cwd`. The state is `busy`, `waiting` or `idle`.
-  `end` removes the line.
+```
+hooks/session-status.sh ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller (watcher) ──▶ browser tab / Claude app
+   (Claude Code hook)            (one line per session)        polls every second
+```
 
-The installed copies are symlinks: `/opt/homebrew/bin/doomscroller` points to
-`doomscroller`, and the hook is wired up in `~/.claude/settings.json`.
+```
+doomscroller            entry point: finds lib/ (following the symlink), sources the modules, calls main
+lib/
+  core.sh               paths (STATUS_FILE, STATE_DIR, PID/LOG/CONFIG_FILE) and log()
+  settings.sh           settings: env var > config file > default; load_settings, validate, save
+  sites.sh              use_site: per-feed URL, PAUSE_KEY, NEXT_BUTTON
+  claude.sh             reads the status file: claude_state, session_states
+  macos.sh              apps and keyboard: app_exists, frontmost_app, press_key_code, press_play_pause_key
+  browser.sh            AppleScript for tabs: show_page (find/reuse/open the tab), run_tab_js, page_js
+  player.sh             the video: pause_video, unmute_reels, start_autoscroll
+  watcher.sh            the process: watch_claude loop, start_watcher (background), run_watcher_here (-w), stop_watcher
+  cli.sh                usage, cmd_start/cmd_status/cmd_config, main (command dispatch)
+  page/*.js             JavaScript run inside the feed's tab (via run_tab_js)
+    reels-check.js        is a reel on screen, and does it need sound?
+    reels-unmute.js       click Instagram's sound button
+    reels-play.js         click Instagram's "Press to play" if the reel is paused
+    autoscroll.js         a function; installs the "next video when this one ends" listener
+  jxa/play-pause-key.js JavaScript for Automation, run by osascript: posts the media play/pause key
+hooks/session-status.sh the Claude Code hook (see below)
+```
+
+### Layers and dependencies
+
+Modules only define functions and constants. Nothing runs when a module is
+sourced, apart from the constants in `core.sh`, `settings.sh` and
+`browser.sh`. The entry point sources them in a fixed order
+(`core settings sites claude macos browser player watcher cli`), then runs
+`load_settings` and `main "$@"`.
+
+Calls go downward only:
+
+- `cli` → `watcher`, `settings`, `sites`, `claude`
+- `watcher` → `browser`, `player`, `claude`
+- `player` → `browser`, `macos`
+- `browser` → `core`
+- `settings` → `macos` (`app_exists`)
+
+`claude.sh` knows nothing about the browser. `browser.sh` knows nothing about
+Reels or Shorts. Site-specific knowledge lives in `sites.sh` (data) and in
+`player.sh` with `page/` (behavior).
+
+### Global state
+
+Set once, then read by everyone:
+
+| Variable | Set by | Meaning |
+|----------|--------|---------|
+| `DOOMSCROLLER`, `LIB_DIR` | entry point | the command as it was run (the watcher re-runs it); the `lib/` path |
+| `SITE`, `BROWSER`, `CLAUDE_APP`, `AUTOSCROLL` | `load_settings`; `cmd_start` flags override `SITE`/`AUTOSCROLL` | settings |
+| `URL`, `PAUSE_KEY`, `NEXT_BUTTON` | `use_site`; a `url` argument overrides `URL` | the feed |
+| `PAGE_OPENED` | `show_page` | fallback: the page was already opened once this run |
+
+### Commands
+
+`start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
+`status`, `config [list|get|set|unset]` and `--help`. There is also an
+internal `_watch <site> <autoscroll> <url>`. `start_watcher` re-runs the
+command with it as the background process, passing the already-resolved
+settings so flags survive.
+
+### The hook
+
+`hooks/session-status.sh <busy|waiting|idle|end>` gets the hook JSON on
+stdin. It keeps one tab-separated line per session:
+`state  time  session_id  cwd`. `end` removes the line. A `mkdir` lock
+protects the file from parallel sessions, and it is replaced atomically. It is
+wired to SessionStart/Stop (idle), UserPromptSubmit/PostToolUse (busy),
+Notification (waiting) and SessionEnd (end) in `~/.claude/settings.json`.
+
+### Installed copies are symlinks
+
+`/opt/homebrew/bin/doomscroller` points to `doomscroller`, and
+`~/.claude/hooks/session-status.sh` points to `hooks/session-status.sh`.
 **Editing the files here changes the live tool.** A watcher that is already
 running keeps the old code until it is restarted.
 
 ## How the watcher works
 
-- It polls the status file every second. The aggregate state is `busy` if any
-  line is `busy`. Everything else, including `waiting`, counts as idle.
-- It acts only on transitions. It starts from `idle`, so if Claude is already
-  busy at start, the first poll opens the page.
-- busy: `show_page` runs a generated AppleScript (`tab_script`) that looks for
-  a tab on the URL's domain (`url_host`). If it finds one, it sets the tab's
-  URL to the target, unless the tab is already there, so the video isn't
-  reloaded, then selects the tab. If no tab is found, it runs
-  `open -a "$BROWSER" "$URL"`. If the browser can't be scripted (no
-  `tab_script` case, or no Automation access), it opens the page once per
-  run and afterwards only runs `open -a "$BROWSER"`.
-- busy on Instagram: `unmute_reels` then turns the sound on in a freshly
-  loaded page. It polls `REELS_CHECK_JS` until a reel is on screen, presses
-  F13, runs `REELS_UNMUTE_JS`, then retries `REELS_PLAY_JS` until the reel
-  plays. The `window.__doomscroller` mark limits this to once per page load.
-- busy with autoscroll on: `start_autoscroll` injects `AUTOSCROLL_JS` into
-  the tab once per page load (`window.__doomscrollerScroll`). From then on,
-  the page clicks the site's `NEXT_BUTTON` (set in `use_site`) whenever the
-  on-screen video finishes. Bash doesn't poll for it.
-- The feed's tab is chosen by `FIND_TAB_START`, shared by both AppleScripts:
-  first a tab whose URL starts with the feed URL, then any tab on the domain.
-- idle: it presses the site's pause key, but only if the browser is the
-  frontmost app, then runs `open -a "$CLAUDE_APP"`.
-- Settings are resolved per key: env var (`DOOMSCROLLER_SITE`, `_BROWSER`,
-  `_CLAUDE_APP`), then `~/.doomscroller/config`, then the default. Defaults
-  live in `setting_info`.
+- `watch_claude` polls `claude_state` every second. The aggregate state is
+  `busy` if any line is `busy`. Everything else, including `waiting`, counts
+  as idle. It acts only on transitions, and starts from `idle`, so if Claude
+  is already busy at start, the first poll opens the page.
+- **busy**:
+  1. `show_page` runs `tab_script`. It picks the feed's tab with
+     `FIND_TAB_START`: first a tab whose URL starts with the feed URL, then
+     any tab on the domain. It points that tab at the feed unless it's
+     already there, so the video isn't reloaded, and selects it. With no tab,
+     it opens a new one. If the browser can't be scripted, it opens the page
+     once per run and afterwards only brings the browser forward.
+  2. `unmute_reels`, on Instagram only: polls `reels-check.js` until a reel
+     is on screen, presses F13, runs `reels-unmute.js`, then retries
+     `reels-play.js` until the reel plays. The `window.__doomscroller` mark
+     limits this to once per page load.
+  3. `start_autoscroll`, if `AUTOSCROLL=on`: injects `autoscroll.js` with the
+     feed URL and `NEXT_BUTTON`, once per page load
+     (`window.__doomscrollerScroll`). From then on, the page itself clicks
+     "next" whenever the on-screen video finishes. Bash doesn't poll for it.
+- **idle**: `pause_video` presses the site's pause key, but only if the
+  browser is the frontmost app, then the watcher runs `open -a "$CLAUDE_APP"`.
 
 ## Non-obvious decisions, keep them
 
@@ -59,8 +120,8 @@ running keeps the old code until it is restarted.
   `setsid` binary.
 - **The Reels pause key is the media play/pause key, not the F8 key code.**
   F8 on a Mac keyboard sends `NX_KEYTYPE_PLAY` (16), which macOS routes to
-  whatever is playing. `key code 100` sends a plain F8, which the page ignores.
-  The JXA snippet in `PLAY_KEY_JS` posts the system-defined event. It checks
+  whatever is playing. `key code 100` sends a plain F8, which the page
+  ignores. `jxa/play-pause-key.js` posts the system-defined event. It checks
   `AXIsProcessTrusted()` first and throws without access, so failures show up
   in the log.
 - **Keys are pressed only when the browser is in front** (`frontmost_app` via
@@ -71,9 +132,9 @@ running keeps the old code until it is restarted.
   `application "X"`, which can pop up a "Where is X?" dialog.
 - **Tabs are addressed by index (`tab i of w`), not by `repeat with t in`
   references,** so the same script body works in Arc, Safari and Chromium
-  browsers. Only the select line differs per browser. Check a new browser
-  case with `osacompile`: it compiles against the app's dictionary without
-  sending events, so no permission prompt appears.
+  browsers. Only the select or execute line differs per browser. Check a new
+  browser case with `osacompile`: it compiles against the app's dictionary
+  without sending events, so no permission prompt appears.
 - **Reels sound needs a real key press first.** Chromium allows unmuted
   playback only after user activation. Clicks made from JavaScript don't
   count, and neither does `execute` from AppleScript. A System Events key
@@ -83,14 +144,17 @@ running keeps the old code until it is restarted.
 - **Use Instagram's own controls, not the `<video>` element.** Clicking the
   `Audio is muted` button makes Instagram keep sound on for later reels.
   Calling `video.play()` directly gets undone, because Instagram still
-  thinks the reel is paused and pauses it again. So the script clicks the
-  `Press to play` overlay instead.
+  thinks the reel is paused and pauses it again. So `reels-play.js` clicks
+  the `Press to play` overlay instead.
 - **Arc's `execute` blocks while a page loads,** sometimes for over a minute,
   which used to freeze the watcher. `tab_js_script` wraps it in
   `with timeout of 2 seconds` and returns `"timeout"`, and callers retry.
-  Also, every `execute` runs in the page's global scope, so wrap the JS in
-  an IIFE: a second top-level `const` fails and returns `null`. Results come
-  back JSON-quoted, and `run_tab_js` strips the quotes.
+- **Page scripts are self-contained expressions.** Every `execute` runs in
+  the page's global scope, so a second top-level `const` fails and returns
+  `null`. Each `page/*.js` is an IIFE whose value is the result.
+  `autoscroll.js` is a bare function, and `start_autoscroll` appends the call
+  with its arguments. Results come back JSON-quoted, and `run_tab_js` strips
+  the quotes.
 - **Autoscroll listens on `document` in the capture phase** (`ended`,
   `timeupdate`), because both feeds swap `<video>` elements as you scroll.
   Reels fire `ended` (`loop` is false). Shorts have `loop` set and never fire
@@ -100,14 +164,10 @@ running keeps the old code until it is restarted.
   видео"). Select YouTube elements by id (`#navigation-button-down button`).
   Instagram's labels are English for this user, and nothing else to select by
   has been found.
-- `AUTOSCROLL_JS` returns `"wrong page"` while the tab still shows the
+- `autoscroll.js` returns `"wrong page"` while the tab still shows the
   previous page, for example right after it was pointed at the feed.
   Otherwise the script would install itself into the page that is about to
   be replaced.
-- **Instagram keeps reels paused while the browser window isn't focused.**
-  Testing playback with Claude in front doesn't work. Test autoscroll by
-  dispatching `new Event("ended")` on the visible video instead. On Shorts,
-  seeking to `duration - 2` works in a background tab (`open -g -a Arc …`).
 - Pressing keys needs Accessibility access, and reading tabs needs Automation
   access to the browser. Both are granted to the *responsible* app, meaning
   the one the user launched doomscroller from, not doomscroller itself.
@@ -115,37 +175,53 @@ running keeps the old code until it is restarted.
 ## Conventions
 
 - Target the system `/bin/bash`, which is **3.2**: no `mapfile`, no
-  associative arrays, no `${var,,}`. Use only macOS built-ins (`open`,
-  `osascript`, `lsappinfo`, `perl`, `awk`, `jq` for the hook). No installs.
-- Short functions, each with a one-line comment saying what it does or why.
-  Comments and user-facing text are in English.
-- When you add a command, flag or setting, update `usage()` and README.md in
-  the same change. `usage()` is the single source for the CLI reference.
+  associative arrays, no `${var,,}`, and `source <(…)` doesn't work. Use only
+  macOS built-ins (`open`, `osascript`, `lsappinfo`, `perl`, `awk`, `jq` for
+  the hook). No installs.
+- Put code in the module that owns the concern, and keep calls going down
+  the layers. JavaScript goes in its own file under `page/` or `jxa/`, never
+  inline in bash strings.
+- Each module starts with a comment saying what it owns. Each function gets
+  a short comment saying what it does or why.
+- Comments and user-facing text are in English.
+- When you add a command, flag or setting, update `usage()` (cli.sh) and
+  README.md in the same change. `usage()` is the single source for the CLI
+  reference. A new setting also needs `setting_info`, `validate_setting` and
+  `load_settings`. A new site needs `use_site` and `validate_setting`.
 - Errors go to stderr and exit 1. Help and success output go to stdout and
   exit 0.
 
 ## Testing
 
-There is no test suite. Exercise the script in isolation, and **never switch
+There is no test suite. Exercise the code in isolation, and **never switch
 windows or press keys on the real desktop** while the user is working:
 
 - Point it at a fake status file: `DOOMSCROLLER_STATUS_FILE=/tmp/…/status.txt`.
 - Use a throwaway `HOME=…` so the real `~/.doomscroller` (pid, config, log) is
   untouched. A real watcher may be running.
 - Put stub `open`, `osascript` and `lsappinfo` scripts first in `PATH`. Have
-  them append their arguments to a file, and return a fake frontmost app for
-  `lsappinfo`.
-- Rewrite the fake status file to drive transitions, sleep about 1.5 s between
-  steps, then check the stub calls and `$HOME/.doomscroller/log`.
-- Run `bash -n doomscroller` for a syntax check.
-- Page-side JavaScript (`REELS_*_JS`) can only be tested live. Run it
-  through `run_tab_js` against the user's real tab. Read-only probes are
-  fine. Ask before anything that reloads, pauses or unmutes. The agent's
-  shell has no Accessibility access, so the F13 step can only be tested by
-  the user.
-- To call a single function, use
-  `bash -c 'eval "$(sed -n "/^name()/,/^}/p" doomscroller)"; name …'`.
-  bash 3.2 can't `source <(…)`.
+  them log their arguments and return a fake frontmost app for `lsappinfo`.
+  `run_tab_js` calls `osascript - <host> <url> <js>`, so a stub can answer by
+  what the JS contains.
+- Rewrite the fake status file to drive transitions, then check the stub
+  calls and `$HOME/.doomscroller/log`. Give a busy step about 3.5 s, because
+  unmuting Reels retries for a while.
+- For a refactor, diff old and new: run `git show HEAD:doomscroller` (or
+  `HEAD:lib/…`) and the working copy through the same cases, and compare the
+  output.
+- Call single functions by sourcing modules:
+  `bash -c 'LIB_DIR=lib; source lib/core.sh; source lib/browser.sh; BROWSER=Arc; tab_script'`.
+- Syntax: run `bash -n` on `doomscroller` and `lib/*.sh`. For JS, run
+  `osacompile` on the generated AppleScripts, and parse `page/*.js` with
+  `new Function(src)` under `osascript -l JavaScript`.
+- Page scripts can only really be tested live, through `run_tab_js`
+  against the user's tab. Read-only probes are fine. Ask before anything
+  that reloads, pauses or unmutes. The agent's shell has no Accessibility
+  access, so the F13 and pause-key steps can only be tested by the user.
+- **Instagram keeps reels paused while the browser window isn't focused.**
+  Testing playback with Claude in front doesn't work. Test autoscroll by
+  dispatching `new Event("ended")` on the visible video instead. On Shorts,
+  seeking to `duration - 2` works in a background tab (`open -g -a Arc …`).
 
 The Bash tool's shell is zsh: unquoted `$args` doesn't word-split, and
 `echo ===` fails. Pass arguments explicitly in test loops.

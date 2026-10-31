@@ -25,7 +25,8 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
    - `waiting` when Claude asks for permission or input;
    - `idle` when a session starts or Claude finishes its turn;
    - the line is removed when the session ends.
-2. **Watcher** ([doomscroller](doomscroller)). It reads that file once a
+2. **Watcher** ([doomscroller](doomscroller), with its modules in
+   [lib/](lib)). It reads that file once a
    second. Claude counts as busy if any session is busy. On a change:
    - **idle → busy**: shows the feed in the browser. It prefers a tab
      already on the feed and doesn't reload it, so you keep your place.
@@ -58,6 +59,9 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
    ```bash
    ln -s ~/Developer/doomscroller/doomscroller /opt/homebrew/bin/doomscroller
    ```
+
+   Use a symlink rather than a copy: the command finds its `lib/` folder
+   next to the file the link points to.
 
 2. Install the hook. Link the script into Claude's hooks folder:
 
