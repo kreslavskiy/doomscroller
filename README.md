@@ -1,6 +1,6 @@
 # doomscroller
 
-<img width="600" height="558" alt="image" src="https://github.com/user-attachments/assets/6bea4bb8-e625-4ddb-a439-d38fd3fdf03b" />
+<img width="300" height="179" alt="image" src="https://github.com/user-attachments/assets/6bea4bb8-e625-4ddb-a439-d38fd3fdf03b" />
 
 
 Watch Instagram Reels or YouTube Shorts while Claude Code works, and get pulled
