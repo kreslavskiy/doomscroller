@@ -27,8 +27,17 @@ running keeps the old code until it is restarted.
   line is `busy`. Everything else, including `waiting`, counts as idle.
 - It acts only on transitions. It starts from `idle`, so if Claude is already
   busy at start, the first poll opens the page.
-- busy: on the first switch it runs `open -a "$BROWSER" "$URL"`. After that it
-  runs only `open -a "$BROWSER"`, so no new tab is opened on every turn.
+- busy: `show_page` runs a generated AppleScript (`tab_script`) that looks for
+  a tab on the URL's domain (`url_host`). If it finds one, it sets the tab's
+  URL to the target, unless the tab is already there, so the video isn't
+  reloaded, then selects the tab. If no tab is found, it runs
+  `open -a "$BROWSER" "$URL"`. If the browser can't be scripted (no
+  `tab_script` case, or no Automation access), it opens the page once per
+  run and afterwards only runs `open -a "$BROWSER"`.
+- busy on Instagram: `unmute_reels` then turns the sound on in a freshly
+  loaded page. It polls `REELS_CHECK_JS` until a reel is on screen, presses
+  F13, runs `REELS_UNMUTE_JS`, then retries `REELS_PLAY_JS` until the reel
+  plays. The `window.__doomscroller` mark limits this to once per page load.
 - idle: it presses the site's pause key, but only if the browser is the
   frontmost app, then runs `open -a "$CLAUDE_APP"`.
 - Settings are resolved per key: env var (`DOOMSCROLLER_SITE`, `_BROWSER`,
@@ -53,7 +62,30 @@ running keeps the old code until it is restarted.
 - **Apps are validated by looking for `<name>.app` in the standard folders.**
   Don't use `open -Ra`, which reveals the app in Finder, or AppleScript
   `application "X"`, which can pop up a "Where is X?" dialog.
-- Pressing keys needs Accessibility access for the *responsible* app, meaning
+- **Tabs are addressed by index (`tab i of w`), not by `repeat with t in`
+  references,** so the same script body works in Arc, Safari and Chromium
+  browsers. Only the select line differs per browser. Check a new browser
+  case with `osacompile`: it compiles against the app's dictionary without
+  sending events, so no permission prompt appears.
+- **Reels sound needs a real key press first.** Chromium allows unmuted
+  playback only after user activation. Clicks made from JavaScript don't
+  count, and neither does `execute` from AppleScript. A System Events key
+  press does count. F13 is used because it types nothing and Instagram
+  ignores it. Without activation, unmuting works, but `play()` rejects with
+  `NotAllowedError`. This was verified live in Arc.
+- **Use Instagram's own controls, not the `<video>` element.** Clicking the
+  `Audio is muted` button makes Instagram keep sound on for later reels.
+  Calling `video.play()` directly gets undone, because Instagram still
+  thinks the reel is paused and pauses it again. So the script clicks the
+  `Press to play` overlay instead.
+- **Arc's `execute` blocks while a page loads,** sometimes for over a minute,
+  which used to freeze the watcher. `tab_js_script` wraps it in
+  `with timeout of 2 seconds` and returns `"timeout"`, and callers retry.
+  Also, every `execute` runs in the page's global scope, so wrap the JS in
+  an IIFE: a second top-level `const` fails and returns `null`. Results come
+  back JSON-quoted, and `run_tab_js` strips the quotes.
+- Pressing keys needs Accessibility access, and reading tabs needs Automation
+  access to the browser. Both are granted to the *responsible* app, meaning
   the one the user launched doomscroller from, not doomscroller itself.
 
 ## Conventions
@@ -82,6 +114,14 @@ windows or press keys on the real desktop** while the user is working:
 - Rewrite the fake status file to drive transitions, sleep about 1.5 s between
   steps, then check the stub calls and `$HOME/.doomscroller/log`.
 - Run `bash -n doomscroller` for a syntax check.
+- Page-side JavaScript (`REELS_*_JS`) can only be tested live. Run it
+  through `run_tab_js` against the user's real tab. Read-only probes are
+  fine. Ask before anything that reloads, pauses or unmutes. The agent's
+  shell has no Accessibility access, so the F13 step can only be tested by
+  the user.
+- To call a single function, use
+  `bash -c 'eval "$(sed -n "/^name()/,/^}/p" doomscroller)"; name …'`.
+  bash 3.2 can't `source <(…)`.
 
 The Bash tool's shell is zsh: unquoted `$args` doesn't word-split, and
 `echo ===` fails. Pass arguments explicitly in test loops.

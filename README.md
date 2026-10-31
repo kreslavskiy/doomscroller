@@ -27,8 +27,18 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
    - the line is removed when the session ends.
 2. **Watcher** ([doomscroller](doomscroller)). It reads that file once a
    second. Claude counts as busy if any session is busy. On a change:
-   - **idle → busy**: opens the feed in the browser. After the first time it
-     only brings the browser forward, so you don't pile up tabs.
+   - **idle → busy**: shows the feed in the browser. If a tab on the same
+     site is already open, it switches to that tab and points it at the feed,
+     for example an Instagram profile becomes Reels. A tab already on the feed
+     isn't reloaded, so you keep your place. Without such a tab, it opens a
+     new one.
+
+     On Reels it also turns the sound on. A freshly loaded Instagram page
+     starts muted, because the browser allows sound only after you've
+     interacted with the page. So doomscroller presses F13, a key that types
+     nothing but counts as interaction, then clicks Instagram's own sound
+     button and starts the reel. It does this once per page load, so if you
+     mute a reel yourself, it stays muted.
    - **busy → idle/waiting**: pauses the video if the browser is still in
      front, then switches to the Claude app.
 
@@ -69,10 +79,21 @@ Claude Code hooks ──▶ ~/Desktop/claude-status.txt ──▶ doomscroller �
    Sessions started after this change will show up in
    `~/Desktop/claude-status.txt`.
 
-3. Allow Accessibility access. Pausing presses a key, so macOS needs to allow
-   it for the app you run `doomscroller` from (Terminal, iTerm, Claude…):
-   System Settings → Privacy & Security → Accessibility. Without it, everything
-   except pausing still works, and the log tells you what's missing.
+3. Allow two permissions for the app you run `doomscroller` from (Terminal,
+   iTerm, Claude…). Both are in System Settings → Privacy & Security:
+   - **Accessibility**, for pressing keys (pause, and F13 before unmuting
+     Reels). Without it, videos aren't paused and Reels stay muted.
+   - **Automation → your browser**, for finding the open tab and turning on
+     Reels sound. macOS asks the first time. Without it, the page opens once,
+     later turns only bring the browser forward, and Reels stay muted.
+
+   The log tells you when something is missing.
+
+   Tab reuse works in Arc, Safari, Google Chrome, Brave, Edge, Chromium and
+   Vivaldi. Other browsers fall back to opening the page once. Turning on
+   Reels sound runs JavaScript in the tab. Arc allows that as is. Chrome-like
+   browsers need View → Developer → Allow JavaScript from Apple Events, and
+   Safari needs Develop → Allow JavaScript from Apple Events.
 
 ## Usage
 
@@ -138,6 +159,11 @@ How each site gets paused:
 - **Stale busy lines.** If a session crashes without its `SessionEnd` hook, its
   `busy` line stays in the status file and doomscroller thinks Claude is still
   working. Delete that line from `~/Desktop/claude-status.txt`.
+- **Reels sound depends on Instagram's page.** It finds the sound and play
+  buttons by their labels (`Audio is muted`, `Press to play`), so an
+  Instagram redesign can break it. Reels then just stay muted.
+- **The feed takes over the site's tab.** Every turn sends the Instagram (or
+  YouTube) tab back to the feed, even if you were reading DMs there.
 - **Fast replies.** A reply that takes a couple of seconds still sends you to
   the browser and right back.
 

@@ -243,9 +243,187 @@ pause_video() {
   fi
 }
 
+# Prints a URL's domain without "www.", e.g. "instagram.com".
+url_host() {
+  echo "$1" | sed -E 's#^[a-z]+://##; s#/.*##; s#^www\.##'
+}
+
+# Prints an AppleScript for $BROWSER that looks for a tab on a domain. If it
+# finds one, it points the tab at the target URL (unless the tab is already
+# there, so the current video isn't reloaded), brings it to the front and
+# says "found"; otherwise it says "none". Each browser selects tabs its own
+# way; fails for browsers without tab scripting.
+tab_script() {
+  local select_tab
+  case "$BROWSER" in
+    Arc) select_tab='select tab i of w' ;;
+    Safari) select_tab='set current tab of w to tab i of w
+          set index of w to 1' ;;
+    "Google Chrome"|"Brave Browser"|"Microsoft Edge"|Chromium|Vivaldi)
+      select_tab='set active tab index of w to i
+          set index of w to 1' ;;
+    *) return 1 ;;
+  esac
+  cat <<EOF
+on run {site_host, target_url}
+  tell application "$BROWSER"
+    repeat with w in windows
+      repeat with i from 1 to count of tabs of w
+        set tab_url to (URL of tab i of w) as text
+        if tab_url contains ("://" & site_host & "/") or tab_url contains ("." & site_host & "/") then
+          if tab_url does not start with target_url then set URL of tab i of w to target_url
+          $select_tab
+          activate
+          return "found"
+        end if
+      end repeat
+    end repeat
+  end tell
+  return "none"
+end run
+EOF
+}
+
+# Shows the page: reuses a tab already open on the same site, or opens a new one.
+# If the browser's tabs can't be scripted (unsupported browser, or no Automation
+# access), opens the page once and after that only brings the browser forward,
+# so every turn doesn't add a new tab.
+show_page() {
+  local url="$1" host script result
+  host=$(url_host "$url")
+  if script=$(tab_script); then
+    result=$(osascript - "$host" "$url" <<< "$script" 2>&1)
+    case "$result" in
+      found) log "switched to the $host tab"; return ;;
+      none) open -a "$BROWSER" "$url"; PAGE_OPENED=1; return ;;
+      *) log "can't read $BROWSER tabs: $result" ;;
+    esac
+  fi
+  if [ -z "$PAGE_OPENED" ]; then
+    open -a "$BROWSER" "$url"
+    PAGE_OPENED=1
+  else
+    open -a "$BROWSER"
+  fi
+}
+
+# Prints an AppleScript for $BROWSER that runs JavaScript in the first tab on
+# a domain and returns the result, "no tab", or "timeout": while a page is
+# still loading, Arc doesn't answer until it's done, which can take a minute.
+# Fails for browsers without JavaScript scripting. Chrome-like browsers also
+# need View > Developer > Allow JavaScript from Apple Events; Arc doesn't.
+tab_js_script() {
+  local run_js
+  case "$BROWSER" in
+    Safari) run_js='do JavaScript js in tab i of w' ;;
+    Arc|"Google Chrome"|"Brave Browser"|"Microsoft Edge"|Chromium|Vivaldi)
+      run_js='execute tab i of w javascript js' ;;
+    *) return 1 ;;
+  esac
+  cat <<EOF
+on run {site_host, js}
+  tell application "$BROWSER"
+    repeat with w in windows
+      repeat with i from 1 to count of tabs of w
+        set tab_url to (URL of tab i of w) as text
+        if tab_url contains ("://" & site_host & "/") or tab_url contains ("." & site_host & "/") then
+          try
+            with timeout of 2 seconds
+              return $run_js
+            end timeout
+          on error number -1712
+            return "timeout"
+          end try
+        end if
+      end repeat
+    end repeat
+  end tell
+  return "no tab"
+end run
+EOF
+}
+
+# Runs JavaScript in the tab on a domain and prints the result without quotes.
+run_tab_js() {
+  local script
+  script=$(tab_js_script) || return 1
+  osascript - "$1" "$2" <<< "$script" 2>&1 | tr -d '"'
+}
+
+# Instagram starts a freshly loaded page muted: the browser allows sound only
+# after the user has interacted with the page. Each script below runs once per
+# page load. The window.__doomscroller mark stops it from turning sound back on
+# after you mute it yourself.
+#
+# Says "loading" until a reel is on screen, then "muted" if the reel needs
+# unmuting, otherwise "skip".
+REELS_CHECK_JS='(() => {
+  if (window.__doomscroller) return "skip";
+  const visible = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.top >= 0 && r.top < innerHeight; };
+  if (![...document.querySelectorAll("video")].some(visible)) return "loading";
+  const icon = [...document.querySelectorAll("svg[aria-label=\"Audio is muted\"]")].some(visible);
+  if (!icon) window.__doomscroller = true;
+  return icon ? "muted" : "skip";
+})()'
+
+# Clicks Instagram's own sound button, so it keeps sound on for the next reels.
+REELS_UNMUTE_JS='(() => {
+  window.__doomscroller = true;
+  const visible = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.top >= 0 && r.top < innerHeight; };
+  const icon = [...document.querySelectorAll("svg[aria-label=\"Audio is muted\"]")].find(visible);
+  if (icon) icon.closest("[role=button]").click();
+  const video = [...document.querySelectorAll("video")].find(visible);
+  return "activated=" + navigator.userActivation.hasBeenActive + " muted=" + (video ? video.muted : "?");
+})()'
+
+# Says "playing", or starts a paused reel and says "started". Clicks Instagram's
+# own "Press to play" overlay: calling video.play() directly gets undone,
+# because Instagram still thinks the reel is paused and pauses it again.
+REELS_PLAY_JS='(() => {
+  const visible = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.top >= 0 && r.top < innerHeight; };
+  const video = [...document.querySelectorAll("video")].find(visible);
+  if (!video) return "no video";
+  if (!video.paused) return "playing";
+  const overlay = [...document.querySelectorAll("[role=button][aria-label=\"Press to play\"]")].find(visible);
+  if (overlay) overlay.click(); else video.play().catch(() => {});
+  return "started";
+})()'
+
+# Turns the sound on in a freshly loaded Reels page. First presses F13, a key
+# that types nothing and that Instagram ignores, so the browser counts it as
+# user interaction and lets the video play with sound.
+unmute_reels() {
+  local host state="" result deadline=$((SECONDS + 15))
+  host=$(url_host "$1")
+  [ "$host" = instagram.com ] || return
+  # Wait up to 15 s for the page to load and show a reel.
+  while [ $SECONDS -lt $deadline ]; do
+    state=$(run_tab_js "$host" "$REELS_CHECK_JS") || return
+    [ "$state" = loading ] || [ "$state" = timeout ] || break
+    sleep 0.5
+  done
+  case "$state" in
+    muted) ;;
+    skip|loading|timeout|"no tab") return ;;
+    *) log "can't run JavaScript in $BROWSER: $state"; return ;;
+  esac
+  [ "$(frontmost_app)" = "$BROWSER" ] || return
+  osascript -e 'tell application "System Events" to key code 105' 2>/dev/null \
+    || log "can't press keys: allow Accessibility in System Settings > Privacy & Security"
+  result=$(run_tab_js "$host" "$REELS_UNMUTE_JS")
+  # Make sure the reel plays: a second later Instagram may have paused it.
+  local tries=0 playing=""
+  while [ $tries -lt 3 ] && [ "$playing" != playing ]; do
+    sleep 1
+    playing=$(run_tab_js "$host" "$REELS_PLAY_JS")
+    tries=$((tries + 1))
+  done
+  log "turned on Reels sound ($result, video $playing)"
+}
+
 # Acts only when the state changes. With "verbose", also logs every poll.
 watch() {
-  local url="$1" verbose="$2" now page_opened=""
+  local url="$1" verbose="$2" now
   log "watching, Claude is $(claude_state)"
   # Start from idle, so if Claude is already busy the first poll opens the page.
   local last=idle
@@ -255,14 +433,8 @@ watch() {
     [ "$now" = "$last" ] && continue
     if [ "$now" = busy ]; then
       log "busy -> $BROWSER"
-      # Open the page once; after that just bring the browser forward,
-      # so every turn doesn't add a new tab.
-      if [ -z "$page_opened" ]; then
-        open -a "$BROWSER" "$url"
-        page_opened=1
-      else
-        open -a "$BROWSER"
-      fi
+      show_page "$url"
+      unmute_reels "$url"
     else
       log "idle -> $CLAUDE_APP"
       pause_video
