@@ -1,0 +1,339 @@
+#!/bin/bash
+# doomscroller: while Claude Code is working, show Reels or Shorts in the browser;
+# when it stops (idle or waiting for you), pause the video and bring Claude
+# back to the front.
+#
+# Reads ~/Desktop/claude-status.txt, kept by ~/.claude/hooks/session-status.sh.
+# Claude counts as busy when at least one session in that file is busy.
+#
+# Commands, flags and settings: see usage() below, or run doomscroller --help.
+
+STATUS_FILE="${DOOMSCROLLER_STATUS_FILE:-$HOME/Desktop/claude-status.txt}"
+
+STATE_DIR="$HOME/.doomscroller"
+PID_FILE="$STATE_DIR/pid"
+LOG_FILE="$STATE_DIR/log"
+CONFIG_FILE="$STATE_DIR/config"
+
+CONFIG_KEYS="site browser claude-app"
+
+# Prints a setting's environment variable and default, e.g. "DOOMSCROLLER_SITE reels".
+setting_info() {
+  case "$1" in
+    site)       echo "DOOMSCROLLER_SITE reels" ;;
+    browser)    echo "DOOMSCROLLER_BROWSER Arc" ;;
+    claude-app) echo "DOOMSCROLLER_CLAUDE_APP Claude" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prints the value saved in the config file (key=value lines), empty if none.
+config_value() {
+  [ -f "$CONFIG_FILE" ] || return
+  awk -v key="$1" 'index($0, key "=") == 1 { value = substr($0, length(key) + 2) } END { print value }' "$CONFIG_FILE"
+}
+
+# Prints where a setting comes from: env, config or default.
+setting_source() {
+  local env default
+  read -r env default <<< "$(setting_info "$1")"
+  if [ -n "${!env}" ]; then echo env
+  elif [ -n "$(config_value "$1")" ]; then echo config
+  else echo default
+  fi
+}
+
+# Prints a setting: environment variable first, then config file, then default.
+setting() {
+  local env default
+  read -r env default <<< "$(setting_info "$1")"
+  case "$(setting_source "$1")" in
+    env)     echo "${!env}" ;;
+    config)  config_value "$1" ;;
+    default) echo "$default" ;;
+  esac
+}
+
+SITE=$(setting site)
+BROWSER=$(setting browser)
+CLAUDE_APP=$(setting claude-app)
+
+log() { echo "$(date '+%H:%M:%S') $*"; }
+
+usage() {
+  cat <<EOF
+doomscroller: watch Reels or Shorts while Claude Code works.
+
+When Claude starts working, opens the page in $BROWSER. When it stops
+(idle or waiting for you), pauses the video and brings $CLAUDE_APP back.
+
+Usage:
+  doomscroller start [--reels | --shorts] [--watch] [url]
+  doomscroller stop
+  doomscroller status
+  doomscroller config [list | get <key> | set <key> <value> | unset <key>]
+  doomscroller --help
+
+Commands:
+  start        start watching in the background (log: ~/.doomscroller/log)
+  stop         stop watching
+  status       show whether it's running and what Claude is doing
+  config       show or change settings (saved in ~/.doomscroller/config)
+
+Flags for start:
+  --reels      Instagram Reels, paused with the play/pause key (F8)
+  --shorts     YouTube Shorts, paused with space
+  -w, --watch  stay in this terminal and log Claude's state every second
+  url          open this page instead, paused like the chosen site
+
+Settings:
+  site         reels or shorts (default: reels)
+  browser      browser app (default: Arc)
+  claude-app   app to return to (default: Claude; e.g. Terminal, iTerm, Ghostty)
+
+  Examples: doomscroller config set site shorts
+            doomscroller config set browser Google Chrome
+            doomscroller config unset browser
+
+  For one run, environment variables override the config:
+  DOOMSCROLLER_SITE, DOOMSCROLLER_BROWSER, DOOMSCROLLER_CLAUDE_APP.
+
+Pausing presses keys, which needs Accessibility access for the app you run
+doomscroller from (System Settings > Privacy & Security > Accessibility).
+EOF
+}
+
+# Sets URL and PAUSE_KEY for a site.
+use_site() {
+  case "$1" in
+    reels)  URL="https://www.instagram.com/reels/"; PAUSE_KEY=play ;;
+    shorts) URL="https://www.youtube.com/shorts";   PAUSE_KEY=space ;;
+    *) echo "unknown site: $1 (use reels or shorts)"; exit 1 ;;
+  esac
+  SITE="$1"
+}
+
+app_exists() {
+  local dir
+  for dir in /Applications /Applications/Utilities /System/Applications \
+             /System/Applications/Utilities "$HOME/Applications"; do
+    [ -d "$dir/$1.app" ] && return 0
+  done
+  return 1
+}
+
+# Checks a value before it's saved; says what's wrong if it isn't valid.
+validate_setting() {
+  case "$1" in
+    site)
+      [ "$2" = reels ] || [ "$2" = shorts ] || { echo "site must be reels or shorts"; return 1; } ;;
+    browser|claude-app)
+      app_exists "$2" || { echo "app not found: $2.app (looked in /Applications, ~/Applications and /System/Applications)"; return 1; } ;;
+  esac
+}
+
+# Writes key=value to the config file, or removes the key if no value is given.
+save_setting() {
+  mkdir -p "$STATE_DIR"
+  local tmp
+  tmp=$(mktemp "$CONFIG_FILE.XXXXXX")
+  [ -f "$CONFIG_FILE" ] && grep -v "^$1=" "$CONFIG_FILE" > "$tmp"
+  [ -n "$2" ] && echo "$1=$2" >> "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+}
+
+# doomscroller config [list | get <key> | set <key> <value> | unset <key>]
+config_command() {
+  local action="${1:-list}" key="$2" value="${*:3}" info env default
+  case "$action" in
+    list|get|set|unset) ;;
+    *) usage >&2; exit 1 ;;
+  esac
+  if [ "$action" != list ]; then
+    if ! info=$(setting_info "$key"); then
+      echo "unknown setting: '$key' (settings: $CONFIG_KEYS)" >&2
+      exit 1
+    fi
+    read -r env default <<< "$info"
+  fi
+  case "$action" in
+    list)
+      for key in $CONFIG_KEYS; do
+        printf '%-11s %s (%s)\n' "$key" "$(setting "$key")" "$(setting_source "$key")"
+      done
+      return ;;
+    get)
+      setting "$key"
+      return ;;
+    set)
+      if [ -z "$value" ]; then
+        echo "usage: doomscroller config set $key <value>" >&2
+        exit 1
+      fi
+      validate_setting "$key" "$value" >&2 || exit 1
+      save_setting "$key" "$value"
+      echo "$key = $value" ;;
+    unset)
+      save_setting "$key"
+      echo "$key = $default (default)" ;;
+  esac
+  # After set or unset: say when the change doesn't take effect right away.
+  if [ -n "${!env}" ]; then
+    echo "note: $env=${!env} is set in this shell and overrides the config"
+  fi
+  if is_running; then
+    echo "doomscroller is running: restart it to apply (doomscroller stop, then start)"
+  fi
+}
+
+# Prints "busy" if any session is busy, otherwise "idle".
+claude_state() {
+  if [ -f "$STATUS_FILE" ] && cut -f1 "$STATUS_FILE" | grep -qx busy; then
+    echo busy
+  else
+    echo idle
+  fi
+}
+
+is_running() {
+  [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+# Prints every session's state with its folder name,
+# e.g. "busy doomscroller, idle main-backend".
+session_states() {
+  [ -f "$STATUS_FILE" ] || { echo "no sessions"; return; }
+  awk -F'\t' '{ n = split($4, dir, "/"); printf "%s%s %s", (NR > 1 ? ", " : ""), $1, dir[n] }
+              END { if (NR == 0) printf "no sessions"; print "" }' "$STATUS_FILE"
+}
+
+# Name of the app in front, e.g. "Arc". lsappinfo needs no permissions.
+frontmost_app() {
+  lsappinfo info -only name "$(lsappinfo front)" | cut -d'"' -f4
+}
+
+# Presses the media play/pause key, which is what F8 does on a Mac keyboard.
+# A plain F8 key code wouldn't work: the page never sees the media key,
+# macOS hands it to whatever is playing. NX_KEYTYPE_PLAY is 16.
+PLAY_KEY_JS='
+ObjC.import("Cocoa"); ObjC.import("ApplicationServices");
+if (!$.AXIsProcessTrusted()) throw "no Accessibility access";
+[0xa, 0xb].forEach(function (upDown) {  // key down, then key up
+  $.CGEventPost(0, $.NSEvent.otherEventWithTypeLocationModifierFlagsTimestampWindowNumberContextSubtypeData1Data2(
+    14, {x: 0, y: 0}, upDown << 8, 0, 0, $(), 8, (16 << 16) | (upDown << 8), -1).CGEvent);
+});'
+
+press_pause_key() {
+  case "$PAUSE_KEY" in
+    space) osascript -e 'tell application "System Events" to key code 49' ;;
+    play)  osascript -l JavaScript -e "$PLAY_KEY_JS" ;;
+  esac
+}
+
+# Pauses the video, but only if the browser is still in front: otherwise
+# the key would land in whatever app you switched to.
+# Pressing keys needs Accessibility access for the app that started doomscroller.
+pause_video() {
+  [ "$(frontmost_app)" = "$BROWSER" ] || return
+  if press_pause_key > /dev/null 2>&1; then
+    log "paused video ($PAUSE_KEY key)"
+    sleep 0.2
+  else
+    log "can't press keys: allow Accessibility in System Settings > Privacy & Security"
+  fi
+}
+
+# Acts only when the state changes. With "verbose", also logs every poll.
+watch() {
+  local url="$1" verbose="$2" now page_opened=""
+  log "watching, Claude is $(claude_state)"
+  # Start from idle, so if Claude is already busy the first poll opens the page.
+  local last=idle
+  while sleep 1; do
+    now=$(claude_state)
+    [ -n "$verbose" ] && log "$now | $(session_states)"
+    [ "$now" = "$last" ] && continue
+    if [ "$now" = busy ]; then
+      log "busy -> $BROWSER"
+      # Open the page once; after that just bring the browser forward,
+      # so every turn doesn't add a new tab.
+      if [ -z "$page_opened" ]; then
+        open -a "$BROWSER" "$url"
+        page_opened=1
+      else
+        open -a "$BROWSER"
+      fi
+    else
+      log "idle -> $CLAUDE_APP"
+      pause_video
+      open -a "$CLAUDE_APP"
+    fi
+    last=$now
+  done
+}
+
+case "$1" in
+  start)
+    watch_mode="" custom_url=""
+    for arg in "${@:2}"; do
+      case "$arg" in
+        --reels) SITE=reels ;;
+        --shorts) SITE=shorts ;;
+        -w|--watch) watch_mode=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) [ -n "$arg" ] && custom_url="$arg" ;;
+      esac
+    done
+    use_site "$SITE"
+    [ -n "$custom_url" ] && URL="$custom_url"
+    if is_running; then
+      echo "doomscroller is already running (pid $(cat "$PID_FILE"))"
+      exit 0
+    fi
+    mkdir -p "$STATE_DIR"
+    if [ -n "$watch_mode" ]; then
+      # Watch mode: stay in this terminal and log every poll; Ctrl+C stops it.
+      echo $$ > "$PID_FILE"
+      trap 'rm -f "$PID_FILE"' EXIT
+      echo "doomscroller watching: $URL in $BROWSER (Ctrl+C to stop)"
+      watch "$URL" verbose
+    fi
+    # setsid puts the watcher in its own session, so it survives the shell
+    # that started it (the Claude app kills a `!` command's whole group).
+    # macOS has no setsid command, hence the perl one-liner.
+    nohup perl -MPOSIX -e 'setsid; exec @ARGV' "$0" _watch "$SITE" "$URL" \
+      >> "$LOG_FILE" 2>&1 < /dev/null &
+    echo $! > "$PID_FILE"
+    echo "doomscroller started: $URL in $BROWSER"
+    ;;
+  stop)
+    if is_running; then
+      kill "$(cat "$PID_FILE")"
+      echo "doomscroller stopped"
+    else
+      echo "doomscroller is not running"
+    fi
+    rm -f "$PID_FILE"
+    ;;
+  status)
+    if is_running; then
+      echo "running (pid $(cat "$PID_FILE")), Claude is $(claude_state)"
+    else
+      echo "stopped, Claude is $(claude_state)"
+    fi
+    ;;
+  _watch)
+    use_site "$2"
+    watch "$3"
+    ;;
+  config)
+    config_command "${@:2}"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac
