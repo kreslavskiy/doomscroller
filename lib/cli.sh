@@ -9,6 +9,7 @@ When Claude starts working, opens the page in $BROWSER. When it stops
 (idle or waiting for you), pauses the video and brings $CLAUDE_APP back.
 
 Usage:
+  doomscroller init [--yes]
   doomscroller start [--reels | --shorts] [--autoscroll | --no-autoscroll] [--watch] [url]
   doomscroller stop
   doomscroller status
@@ -16,10 +17,15 @@ Usage:
   doomscroller --help
 
 Commands:
+  init         set up: link the command and the Claude Code hook, choose your
+               feed, browser and apps, check permissions. Safe to run again
   start        start watching in the background (log: ~/.doomscroller/log)
   stop         stop watching
   status       show whether it's running and what Claude is doing
   config       show or change settings (saved in ~/.doomscroller/config)
+
+Flags for init:
+  -y, --yes    don't ask: take the answer in [brackets] everywhere
 
 Flags for start:
   --reels      Instagram Reels, paused with the play/pause key (F8)
@@ -73,6 +79,30 @@ cmd_start() {
     run_watcher_here
   else
     start_watcher
+  fi
+}
+
+# doomscroller init [--yes]
+cmd_init() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      -y|--yes) ASSUME_YES=1 ;;
+      -h|--help) usage; exit 0 ;;
+      *) usage >&2; exit 1 ;;
+    esac
+  done
+  run_setup
+  step "5. Start"
+  if is_running; then
+    if ask_yes "doomscroller is running with the old settings. Restart it?"; then
+      stop_watcher
+      cmd_start
+    fi
+  elif ask_yes "Start doomscroller now?"; then
+    cmd_start
+  else
+    echo "   Start it later with: doomscroller start"
   fi
 }
 
@@ -130,6 +160,7 @@ cmd_config() {
 
 main() {
   case "$1" in
+    init)   cmd_init "${@:2}" ;;
     start)  cmd_start "${@:2}" ;;
     stop)   stop_watcher ;;
     status) cmd_status ;;

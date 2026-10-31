@@ -21,7 +21,7 @@ while [ -L "$self" ]; do
 done
 LIB_DIR="$(cd "$(dirname "$self")" && pwd)/lib"
 
-for module in core settings sites claude macos browser player watcher cli; do
+for module in core settings sites claude macos browser player watcher setup cli; do
   source "$LIB_DIR/$module.sh"
 done
 

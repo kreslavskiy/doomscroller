@@ -23,27 +23,30 @@ lib/
   browser.sh            AppleScript for tabs: show_page (find/reuse/open the tab), run_tab_js, page_js
   player.sh             the video: pause_video, unmute_reels, start_autoscroll
   watcher.sh            the process: watch_claude loop, start_watcher (background), run_watcher_here (-w), stop_watcher
-  cli.sh                usage, cmd_start/cmd_status/cmd_config, main (command dispatch)
+  setup.sh              doomscroller init: link the command and hook, merge the hook into ~/.claude/settings.json, ask preferences, check permissions
+  cli.sh                usage, cmd_init/cmd_start/cmd_status/cmd_config, main (command dispatch)
   page/*.js             JavaScript run inside the feed's tab (via run_tab_js)
     reels-check.js        is a reel on screen, and does it need sound?
     reels-unmute.js       click Instagram's sound button
     reels-play.js         click Instagram's "Press to play" if the reel is paused
     autoscroll.js         a function; installs the "next video when this one ends" listener
   jxa/play-pause-key.js JavaScript for Automation, run by osascript: posts the media play/pause key
+  jxa/is-trusted.js     prints whether the running app has Accessibility access (for init)
 hooks/session-status.sh the Claude Code hook (see below)
 ```
 
 ### Layers and dependencies
 
 Modules only define functions and constants. Nothing runs when a module is
-sourced, apart from the constants in `core.sh`, `settings.sh` and
-`browser.sh`. The entry point sources them in a fixed order
-(`core settings sites claude macos browser player watcher cli`), then runs
+sourced, apart from the constants in `core.sh`, `settings.sh`, `browser.sh`
+and `setup.sh`. The entry point sources them in a fixed order
+(`core settings sites claude macos browser player watcher setup cli`), then runs
 `load_settings` and `main "$@"`.
 
 Calls go downward only:
 
-- `cli` → `watcher`, `settings`, `sites`, `claude`
+- `cli` → `setup`, `watcher`, `settings`, `sites`, `claude`
+- `setup` → `settings`, `browser` (`tab_script`, to tell if the browser is scriptable), `macos`
 - `watcher` → `browser`, `player`, `claude`
 - `player` → `browser`, `macos`
 - `browser` → `core`
@@ -66,11 +69,26 @@ Set once, then read by everyone:
 
 ### Commands
 
-`start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
+`init [--yes]`, `start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
 `status`, `config [list|get|set|unset]` and `--help`. There is also an
 internal `_watch <site> <autoscroll> <url>`. `start_watcher` re-runs the
 command with it as the background process, passing the already-resolved
 settings so flags survive.
+
+`init` runs `run_setup` (setup.sh), then `cmd_init` offers to start or
+restart the watcher, since starting lives in cli. Each step checks first and
+prints ✓ if there's nothing to do, so it's safe to re-run. Rules for it:
+
+- Ask (`ask_yes`) before touching anything outside `~/.doomscroller`.
+  Replacing a file someone else put there defaults to "no" and keeps a `.bak`.
+- Never run `sudo`. Print the command instead.
+- The settings.json merge goes through `jq`, adds only the missing events,
+  and treats any command ending in `session-status.sh <state>` as already
+  there. It writes through the file (`cat >`), so a symlinked settings.json
+  stays a symlink.
+- Prompts go to stderr, because `choose` prints the answer on stdout to be
+  captured. `ASSUME_YES` (`--yes`) takes every default without reading stdin.
+- `HOOK_COMMAND` and `HOOK_EVENTS` must match the JSON snippet in README.md.
 
 ### The hook
 
@@ -78,7 +96,8 @@ settings so flags survive.
 stdin. It keeps `~/.doomscroller/claude-status` (creating the folder if
 needed) with one tab-separated line per session:
 `state  time  session_id  cwd`. `end` removes the line. The path is written
-both in the hook and in `STATUS_FILE` (core.sh): change them together. A `mkdir` lock
+both in the hook and in `STATUS_FILE` (core.sh): change them together.
+`init` adds this wiring for you (see Commands). A `mkdir` lock
 protects the file from parallel sessions, and it is replaced atomically. It is
 wired to SessionStart/Stop (idle), UserPromptSubmit/PostToolUse (busy),
 Notification (waiting) and SessionEnd (end) in `~/.claude/settings.json`.
@@ -205,6 +224,10 @@ windows or press keys on the real desktop** while the user is working:
   them log their arguments and return a fake frontmost app for `lsappinfo`.
   `run_tab_js` calls `osascript - <host> <url> <js>`, so a stub can answer by
   what the JS contains.
+- For `init`, use a throwaway `HOME` with a writable `$HOME/bin` on `PATH`
+  (and no real doomscroller on it), and pipe the answers in, one per line.
+  Stub `osascript` to answer `is-trusted.js` and `count windows`. Answer "n"
+  to starting, or `doomscroller stop` afterwards, since start is real.
 - Rewrite the fake status file to drive transitions, then check the stub
   calls and `$HOME/.doomscroller/log`. Give a busy step about 3.5 s, because
   unmuting Reels retries for a while.

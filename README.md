@@ -54,11 +54,38 @@ Claude Code hooks ──▶ ~/.doomscroller/claude-status ──▶ doomscroller
 
 ## Install
 
-1. Clone the repo and put `doomscroller` on your `PATH`:
+```bash
+git clone https://github.com/kreslavskiy/doomscroller.git ~/Developer/doomscroller
+```
 
-   ```bash
-   git clone https://github.com/kreslavskiy/doomscroller.git ~/Developer/doomscroller
-   ```
+```bash
+~/Developer/doomscroller/doomscroller init
+```
+
+`init` walks you through the setup and asks before changing anything:
+
+1. Links `doomscroller` into a folder on your `PATH` (`/opt/homebrew/bin`,
+   `/usr/local/bin`, `~/.local/bin` or `~/bin`, whichever you can write to).
+2. Links the hook into `~/.claude/hooks` and adds it to
+   `~/.claude/settings.json`, keeping your other settings. The old file is
+   saved as `settings.json.bak`.
+3. Asks for your feed (Reels or Shorts), browser, the app to come back to,
+   and whether to autoscroll.
+4. Checks the permissions below and opens the right System Settings page if
+   one is missing.
+5. Offers to start doomscroller.
+
+Run it from the app you'll run `doomscroller` from, since that's the app the
+permissions go to. It's safe to run again: finished steps show a ✓ and are
+skipped. `init --yes` takes the default answer everywhere.
+
+The hook needs `jq`, which macOS 15 and later include.
+
+### Manual setup
+
+What `init` does, by hand:
+
+1. Put `doomscroller` on your `PATH`:
 
    ```bash
    ln -s ~/Developer/doomscroller/doomscroller /opt/homebrew/bin/doomscroller
@@ -92,25 +119,32 @@ Claude Code hooks ──▶ ~/.doomscroller/claude-status ──▶ doomscroller
    Sessions started after this change will show up in
    `~/.doomscroller/claude-status`.
 
-3. Allow two permissions for the app you run `doomscroller` from (Terminal,
-   iTerm, Claude…). Both are in System Settings → Privacy & Security:
-   - **Accessibility**, for pressing keys (pause, and F13 before unmuting
-     Reels). Without it, videos aren't paused and Reels stay muted.
-   - **Automation → your browser**, for finding the open tab and turning on
-     Reels sound. macOS asks the first time. Without it, the page opens once,
-     later turns only bring the browser forward, and Reels stay muted.
+3. Choose your settings with `doomscroller config` (see
+   [Configuration](#configuration)).
 
-   The log tells you when something is missing.
+### Permissions
 
-   Tab reuse works in Arc, Safari, Google Chrome, Brave, Edge, Chromium and
-   Vivaldi. Other browsers fall back to opening the page once. Turning on
-   Reels sound runs JavaScript in the tab. Arc allows that as is. Chrome-like
-   browsers need View → Developer → Allow JavaScript from Apple Events, and
-   Safari needs Develop → Allow JavaScript from Apple Events.
+The app you run `doomscroller` from (Terminal, iTerm, Claude…) needs two
+permissions, both in System Settings → Privacy & Security:
+
+- **Accessibility**, for pressing keys (pause, and F13 before unmuting
+  Reels). Without it, videos aren't paused and Reels stay muted.
+- **Automation → your browser**, for finding the open tab and turning on
+  Reels sound. macOS asks the first time. Without it, the page opens once,
+  later turns only bring the browser forward, and Reels stay muted.
+
+The log tells you when something is missing.
+
+Tab reuse works in Arc, Safari, Google Chrome, Brave, Edge, Chromium and
+Vivaldi. Other browsers fall back to opening the page once. Turning on
+Reels sound runs JavaScript in the tab. Arc allows that as is. Chrome-like
+browsers need View → Developer → Allow JavaScript from Apple Events, and
+Safari needs Develop → Allow JavaScript from Apple Events.
 
 ## Usage
 
 ```bash
+doomscroller init               # set up, or change your answers later
 doomscroller start              # Reels (or your configured site), in the background
 doomscroller start --shorts     # YouTube Shorts this time
 doomscroller start --autoscroll # go to the next video when one ends
