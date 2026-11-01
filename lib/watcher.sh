@@ -52,6 +52,14 @@ start_watcher() {
   echo "doomscroller started: $URL in $BROWSER, autoscroll $AUTOSCROLL"
 }
 
+# Prints the site and autoscroll the running watcher was started with, e.g.
+# "shorts off", read from its `_watch` arguments (flags for start may differ
+# from the config).
+watcher_settings() {
+  ps -o args= -p "$(cat "$PID_FILE")" 2> /dev/null |
+    awk '{ for (i = 1; i < NF; i++) if ($i == "_watch") { print $(i + 1), $(i + 2); exit } }'
+}
+
 stop_watcher() {
   if is_running; then
     kill "$(cat "$PID_FILE")"

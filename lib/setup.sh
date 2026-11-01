@@ -14,6 +14,8 @@ HOOK_EVENTS="SessionStart:idle UserPromptSubmit:busy PostToolUse:busy Notificati
 # Offered by name if installed; any other app can be typed in.
 KNOWN_BROWSERS="Arc|Safari|Google Chrome|Brave Browser|Microsoft Edge|Chromium|Vivaldi"
 KNOWN_CLAUDE_APPS="Claude|Terminal|iTerm|Ghostty|Warp|WezTerm|kitty|Alacritty|Visual Studio Code|Cursor|Zed"
+# The menu bar plugin's file name: SwiftBar and xbar rerun it every 2 seconds.
+MENUBAR_PLUGIN="doomscroller.2s.sh"
 
 step() { printf '\n%s\n' "$*"; }
 ok()   { echo "   ✓ $*"; }
@@ -292,6 +294,96 @@ setup_permissions() {
   fi
 }
 
+# Prints the menu bar app to use: SwiftBar, else xbar. Fails if neither is installed.
+menubar_app() {
+  if app_exists SwiftBar; then echo SwiftBar
+  elif app_exists xbar; then echo xbar
+  else return 1
+  fi
+}
+
+# Prints the menu bar app's plugin folder. SwiftBar asks for one on first
+# launch, so this fails until it has been opened once.
+menubar_dir() {
+  local dir
+  case "$(menubar_app)" in
+    SwiftBar)
+      dir=$(defaults read com.ameba.SwiftBar PluginDirectory 2> /dev/null) || return 1
+      echo "${dir/#\~/$HOME}" ;;
+    xbar) echo "$HOME/Library/Application Support/xbar/plugins" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prints the plugin: a stub that runs this doomscroller's menu. It uses the
+# command on the PATH if that's this one (a path that survives npm updates),
+# else this file. The menu bar app's own PATH may not include either.
+menubar_plugin() {
+  local command target
+  target="$(dirname "$LIB_DIR")/doomscroller"
+  command=$(command -v doomscroller)
+  if [ -z "$command" ] || [ "$(real_path "$command")" != "$(real_path "$target")" ]; then
+    command=$(real_path "$target")
+  fi
+  cat <<EOF
+#!/bin/bash
+# doomscroller menu bar plugin: Claude Code's state, and a switch for doomscroller.
+# Written by \`doomscroller menubar\`; remove it with \`doomscroller menubar uninstall\`.
+# <xbar.title>doomscroller</xbar.title>
+# <xbar.desc>Claude Code's state, and a switch for doomscroller</xbar.desc>
+# <xbar.abouturl>https://github.com/kreslavskiy/doomscroller</xbar.abouturl>
+# <swiftbar.hideAbout>true</swiftbar.hideAbout>
+# <swiftbar.hideRunInTerminal>true</swiftbar.hideRunInTerminal>
+# <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
+exec '$command' _menu
+EOF
+}
+
+# Asks the menu bar app to reload its plugins (and starts it if it's closed).
+menubar_refresh() {
+  case "$(menubar_app)" in
+    SwiftBar) open -g "swiftbar://refreshallplugins" ;;
+    xbar) open -g "xbar://app.xbarapp.com/refreshAllPlugins" ;;
+  esac
+}
+
+# Puts the plugin into SwiftBar's or xbar's plugin folder, or says how to get
+# one of them. Optional: doomscroller works without it.
+setup_menubar() {
+  local app dir file
+  if ! app=$(menubar_app); then
+    note "Optional: a menu bar icon with Claude's state and an on/off switch."
+    note "Install SwiftBar (brew install --cask swiftbar), then run: doomscroller menubar"
+    return
+  fi
+  if ! dir=$(menubar_dir); then
+    bad "$app has no plugin folder yet. Open $app, choose one, then run: doomscroller menubar"
+    return
+  fi
+  file="$dir/$MENUBAR_PLUGIN"
+  if [ -f "$file" ] && [ "$(cat "$file")" = "$(menubar_plugin)" ]; then
+    ok "the menu bar plugin is in $app"
+    return
+  fi
+  ask_yes "Add doomscroller to the menu bar with $app?" || return
+  mkdir -p "$dir" && menubar_plugin > "$file" && chmod +x "$file" || return
+  menubar_refresh
+  ok "added $(short "$file")"
+  note "Turning doomscroller on from the menu runs it under $app, so $app needs"
+  note "the same Accessibility and Automation access as your terminal"
+}
+
+# Deletes the menu bar plugin, if there is one.
+uninstall_menubar() {
+  local dir
+  if dir=$(menubar_dir) && [ -f "$dir/$MENUBAR_PLUGIN" ]; then
+    ask_yes "Remove doomscroller from the menu bar?" || return
+    rm -f "$dir/$MENUBAR_PLUGIN" && menubar_refresh && ok "removed $(short "$dir/$MENUBAR_PLUGIN")"
+  else
+    ok "no menu bar plugin"
+  fi
+}
+
 # Runs every step. Starting the watcher afterwards is up to the caller.
 run_setup() {
   echo "Setting up doomscroller. Press Enter to take the answer in [brackets]."
@@ -304,6 +396,8 @@ run_setup() {
   setup_preferences
   step "4. Permissions"
   setup_permissions
+  step "5. Menu bar"
+  setup_menubar
 }
 
 # The jq test for a hook command init adds, by any path to the hook.
@@ -374,6 +468,8 @@ run_uninstall() {
   step "Claude Code hook"
   uninstall_hook_settings
   uninstall_hook_file
+  step "Menu bar"
+  uninstall_menubar
   step "Settings and log"
   if [ -d "$STATE_DIR" ]; then
     ask_yes "Delete $(short "$STATE_DIR") (your settings and the log)?" &&

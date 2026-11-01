@@ -74,7 +74,8 @@ doomscroller init
    and whether to autoscroll.
 4. Checks the permissions below and opens the right System Settings page if
    one is missing.
-5. Offers to start doomscroller.
+5. Adds the [menu bar icon](#menu-bar) if you have SwiftBar or xbar.
+6. Offers to start doomscroller.
 
 Run it from the app you'll run `doomscroller` from, since that's the app the
 permissions go to. It's safe to run again: finished steps show a ✓ and are
@@ -181,6 +182,7 @@ doomscroller start --autoscroll # go to the next video when one ends
 doomscroller start -w           # stay in the terminal and log Claude's state every second
 doomscroller status             # running? what is Claude doing?
 doomscroller stop
+doomscroller menubar            # add the menu bar icon
 doomscroller --help
 doomscroller --version
 ```
@@ -199,6 +201,39 @@ mode (`-w`) it prints to the terminal instead, including every poll:
 14:26:51 idle -> Claude
 14:26:51 paused video (play key)
 ```
+
+## Menu bar
+
+With [SwiftBar](https://github.com/swiftbar/SwiftBar) or
+[xbar](https://xbarapp.com) installed, doomscroller can sit in the menu bar:
+
+```bash
+brew install --cask swiftbar
+```
+
+```bash
+doomscroller menubar
+```
+
+Open SwiftBar once before that, so it asks for its plugin folder. The icon
+shows what's going on:
+
+| Icon (SwiftBar) | xbar | Meaning                     |
+|-----------------|------|-----------------------------|
+| ▶ filled        | 🍿   | Claude is working: scroll   |
+| ✋              | ✋   | Claude is waiting for you   |
+| ▶ outline       | 💤   | Claude is idle              |
+| ▶ crossed out   | ⏹    | doomscroller is off         |
+
+The menu lists your Claude sessions and their states, turns doomscroller on
+and off, switches between Reels and Shorts, toggles autoscroll and opens the
+log. Changing the feed or autoscroll there saves it to the config and
+restarts a running doomscroller, so it applies at once.
+
+When you turn doomscroller on from the menu, it runs under SwiftBar (or
+xbar), so that app needs the Accessibility and Automation access described
+under [Permissions](#permissions). `doomscroller menubar uninstall` removes
+the icon.
 
 ## Configuration
 

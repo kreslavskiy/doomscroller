@@ -17,3 +17,19 @@ session_states() {
   awk -F'\t' '{ n = split($4, dir, "/"); printf "%s%s %s", (NR > 1 ? ", " : ""), $1, dir[n] }
               END { if (NR == 0) printf "no sessions"; print "" }' "$STATUS_FILE"
 }
+
+# Like claude_state, but tells waiting from idle: prints busy, waiting or idle.
+claude_state_detail() {
+  local states=""
+  [ -f "$STATUS_FILE" ] && states=$(cut -f1 "$STATUS_FILE")
+  if grep -qx busy <<< "$states"; then echo busy
+  elif grep -qx waiting <<< "$states"; then echo waiting
+  else echo idle
+  fi
+}
+
+# Prints one line per session: its state and folder name, e.g. "busy doomscroller".
+session_lines() {
+  [ -f "$STATUS_FILE" ] || return
+  awk -F'\t' '{ n = split($4, dir, "/"); print $1, dir[n] }' "$STATUS_FILE"
+}

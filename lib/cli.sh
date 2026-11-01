@@ -11,6 +11,7 @@ When Claude starts working, opens the page in $BROWSER. When it stops
 Usage:
   doomscroller init [--yes]
   doomscroller uninstall [--yes]
+  doomscroller menubar [uninstall]
   doomscroller start [--reels | --shorts] [--autoscroll | --no-autoscroll] [--watch] [url]
   doomscroller stop
   doomscroller status
@@ -21,6 +22,8 @@ Commands:
   init         set up: install the Claude Code hook, choose your feed, browser
                and apps, check permissions. Safe to run again
   uninstall    remove the hook from Claude Code, the settings and the log
+  menubar      add a menu bar icon (SwiftBar or xbar) with Claude's state, an
+               on/off switch and the feed; "menubar uninstall" removes it
   start        start watching in the background (log: ~/.doomscroller/log)
   stop         stop watching
   status       show whether it's running and what Claude is doing
@@ -105,7 +108,7 @@ version() {
 cmd_init() {
   parse_setup_flags "$@"
   run_setup
-  step "5. Start"
+  step "6. Start"
   if is_running; then
     if ask_yes "doomscroller is running with the old settings. Restart it?"; then
       stop_watcher
@@ -128,6 +131,16 @@ cmd_uninstall() {
     stop_watcher
   fi
   run_uninstall
+}
+
+# doomscroller menubar [uninstall]
+cmd_menubar() {
+  ASSUME_YES=1
+  case "$1" in
+    ""|install) setup_menubar ;;
+    uninstall) uninstall_menubar ;;
+    *) usage >&2; exit 1 ;;
+  esac
 }
 
 cmd_status() {
@@ -190,6 +203,10 @@ main() {
     stop)   stop_watcher ;;
     status) cmd_status ;;
     config) cmd_config "${@:2}" ;;
+    menubar) cmd_menubar "${@:2}" ;;
+    # The menu bar plugin: prints the menu, or handles a click on a setting.
+    _menu)
+      if [ "$2" = set ]; then menu_set "$3" "$4"; else print_menu; fi ;;
     # The background watcher started by start_watcher.
     _watch)
       use_site "$2"

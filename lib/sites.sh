@@ -14,3 +14,12 @@ use_site() {
   esac
   SITE="$1"
 }
+
+# Prints a site's name for people, e.g. "Instagram Reels".
+site_name() {
+  case "$1" in
+    reels)  echo "Instagram Reels" ;;
+    shorts) echo "YouTube Shorts" ;;
+    *)      echo "$1" ;;
+  esac
+}

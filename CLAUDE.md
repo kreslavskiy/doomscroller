@@ -23,8 +23,9 @@ lib/
   browser.sh            AppleScript for tabs: show_page (find/reuse/open the tab), run_tab_js, page_js
   player.sh             the video: pause_video, unmute_reels, start_autoscroll
   watcher.sh            the process: watch_claude loop, start_watcher (background), run_watcher_here (-w), stop_watcher
-  setup.sh              init (put the command on PATH, copy the hook, merge it into ~/.claude/settings.json, ask preferences, check permissions) and uninstall
-  cli.sh                usage, version, cmd_init/cmd_uninstall/cmd_start/cmd_status/cmd_config, main (command dispatch)
+  menubar.sh            the SwiftBar/xbar menu: print_menu (icon, sessions, on/off, feed, autoscroll), menu_set (a click on a setting)
+  setup.sh              init (put the command on PATH, copy the hook, merge it into ~/.claude/settings.json, ask preferences, check permissions, add the menu bar plugin) and uninstall
+  cli.sh                usage, version, cmd_init/cmd_uninstall/cmd_menubar/cmd_start/cmd_status/cmd_config, main (command dispatch)
   page/*.js             JavaScript run inside the feed's tab (via run_tab_js)
     reels-check.js        is a reel on screen, and does it need sound?
     reels-unmute.js       click Instagram's sound button
@@ -41,12 +42,13 @@ package.json            the npm package: name, version (the only place it's kept
 Modules only define functions and constants. Nothing runs when a module is
 sourced, apart from the constants in `core.sh`, `settings.sh`, `browser.sh`
 and `setup.sh`. The entry point sources them in a fixed order
-(`core settings sites claude macos browser player watcher setup cli`), then runs
+(`core settings sites claude macos browser player watcher menubar setup cli`), then runs
 `load_settings` and `main "$@"`.
 
 Calls go downward only:
 
-- `cli` → `setup`, `watcher`, `settings`, `sites`, `claude`
+- `cli` → `setup`, `menubar`, `watcher`, `settings`, `sites`, `claude`
+- `menubar` → `watcher` (`is_running`, `watcher_settings`, start/stop), `settings`, `sites`, `claude`
 - `setup` → `settings`, `browser` (`tab_script`, to tell if the browser is scriptable), `macos`
 - `watcher` → `browser`, `player`, `claude`
 - `player` → `browser`, `macos`
@@ -102,6 +104,28 @@ prints ✓ if there's nothing to do, so it's safe to re-run. Rules for it:
   from settings.json (dropping events left empty), deletes the hook if it's
   ours and deletes `~/.doomscroller`. An npm-installed command belongs to
   npm, so it only prints `npm uninstall -g`.
+
+### The menu bar plugin
+
+`doomscroller menubar` (or step 5 of `init`) writes `doomscroller.2s.sh`
+into SwiftBar's plugin folder (`defaults read com.ameba.SwiftBar
+PluginDirectory`) or xbar's. The app reruns it every 2 seconds. It's a stub
+that `exec`s the command with an absolute path, because the menu bar app's
+PATH may not have it, and runs the internal `_menu`, so the menu itself
+lives in `menubar.sh` and updates with the package. Each item runs the
+command again (`bash=` with `param1=`…) with `start`, `stop` or
+`_menu set <key> <value>`, which saves the setting and restarts a running
+watcher.
+
+- SwiftBar sets `$SWIFTBAR`: the title is an SF Symbol (`sfimage=`) and
+  checkmarks are `checked=true`. xbar gets emoji and a ✓ in the text.
+- While the watcher runs, the menu shows its real site and autoscroll, read
+  from its `_watch` arguments with `ps` (`watcher_settings`), since flags
+  for start can differ from the config.
+- A watcher started from the menu has SwiftBar as its responsible app, so
+  SwiftBar needs Accessibility and Automation.
+- It can't be tested here without SwiftBar. Run `doomscroller _menu`
+  (with and without `SWIFTBAR=1`) and check the output format instead.
 
 ### The hook
 
