@@ -121,7 +121,9 @@ watcher.
 
 - The title is today's scrolled time next to the icon. The stats part of
   the menu is `print_menu_stats`. "Copy for sharing" runs `_menu share`,
-  which pipes `share_line` to `pbcopy` and shows a notification.
+  which pipes `share_line` to `pbcopy` and shows a notification. `pbcopy`
+  gets `LANG=en_US.UTF-8`: SwiftBar runs plugins without a locale, and
+  `pbcopy` then reads MacRoman and garbles `≈` and emoji.
 - SwiftBar sets `$SWIFTBAR`: the title is an SF Symbol (`sfimage=`) and
   checkmarks are `checked=true`. xbar gets emoji and a ✓ in the text.
 - While the watcher runs, the menu shows its real site and autoscroll, read

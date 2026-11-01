@@ -143,7 +143,9 @@ print_menu_stats() {
 menu_share() {
   local line
   line=$(share_line) || return
-  printf '%s' "$line" | pbcopy
+  # pbcopy reads its input in the locale's encoding, and SwiftBar runs
+  # plugins without LANG, which means MacRoman: "≈" would turn into "‚âà".
+  printf '%s' "$line" | LANG=en_US.UTF-8 pbcopy
   osascript -e 'display notification "Paste it anywhere" with title "doomscroller stats copied"' > /dev/null 2>&1
 }
 
