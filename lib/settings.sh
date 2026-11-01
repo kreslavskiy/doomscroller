@@ -1,7 +1,7 @@
 # Settings: each one comes from its environment variable, then the config
 # file (key=value lines in $CONFIG_FILE), then its default.
 
-CONFIG_KEYS="site browser claude-app autoscroll"
+CONFIG_KEYS="site browser claude-app autoscroll delay"
 
 # Prints a setting's environment variable and default, e.g. "DOOMSCROLLER_SITE reels".
 setting_info() {
@@ -10,6 +10,7 @@ setting_info() {
     browser)    echo "DOOMSCROLLER_BROWSER Arc" ;;
     claude-app) echo "DOOMSCROLLER_CLAUDE_APP Claude" ;;
     autoscroll) echo "DOOMSCROLLER_AUTOSCROLL off" ;;
+    delay)      echo "DOOMSCROLLER_DELAY 3" ;;
     *) return 1 ;;
   esac
 }
@@ -48,6 +49,7 @@ load_settings() {
   BROWSER=$(setting browser)
   CLAUDE_APP=$(setting claude-app)
   AUTOSCROLL=$(setting autoscroll)
+  DELAY=$(setting delay)
 }
 
 # Checks a value before it's saved; says what's wrong if it isn't valid.
@@ -57,6 +59,10 @@ validate_setting() {
       [ "$2" = reels ] || [ "$2" = shorts ] || { echo "site must be reels or shorts"; return 1; } ;;
     autoscroll)
       [ "$2" = on ] || [ "$2" = off ] || { echo "autoscroll must be on or off"; return 1; } ;;
+    delay)
+      case "$2" in
+        ""|*[!0-9]*) echo "delay must be a whole number of seconds"; return 1 ;;
+      esac ;;
     browser|claude-app)
       app_exists "$2" || { echo "app not found: $2.app (looked in /Applications, ~/Applications and /System/Applications)"; return 1; } ;;
   esac

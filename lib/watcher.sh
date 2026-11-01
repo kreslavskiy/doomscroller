@@ -5,38 +5,67 @@ is_running() {
   [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
 }
 
-# Polls Claude's state every second and acts only when it changes.
+# Polls Claude's state every second. The feed opens once Claude has been
+# busy for $DELAY seconds and you're in $CLAUDE_APP: if you switched to
+# another app, it stays out of your way. When Claude stops, it brings you
+# back from the feed, or notifies you if you're somewhere else.
 # With "verbose", also logs every poll. Usage: watch_claude <url> [verbose]
 watch_claude() {
-  local url="$1" verbose="$2" now
-  # The busy turn for stats: its day and start, $SECONDS when it began and at
-  # the last poll, and the seconds the browser was in front.
-  local turn_day="" turn_start turn_began last_poll scrolled
+  local url="$1" verbose="$2" now front since_poll
+  # The busy turn: its day and start, $SECONDS when it began and at the last
+  # poll, the seconds the feed was in front (for stats), whether the feed is
+  # shown, and whether the log already says why it isn't.
+  local turn_day="" turn_start turn_began last_poll scrolled shown held
   # Stopping in the middle of a turn still records it.
   trap '[ -n "$turn_day" ] && stats_record "$turn_day" "$turn_start" $((SECONDS - turn_began)) "$scrolled"; exit 0' TERM INT
   log "watching, Claude is $(claude_state)"
-  # Start from idle, so if Claude is already busy the first poll opens the page.
   local last=idle
   while sleep 1; do
     now=$(claude_state)
     [ -n "$verbose" ] && log "$now | $(session_states)"
-    if [ "$now" = busy ] && [ "$last" = busy ]; then
-      # Counted by elapsed time, since a poll can take longer than a second.
-      [ "$(frontmost_app)" = "$BROWSER" ] && scrolled=$((scrolled + SECONDS - last_poll))
-      last_poll=$SECONDS
-      stats_update "$turn_day" "$turn_start" $((SECONDS - turn_began)) "$scrolled"
-    fi
-    [ "$now" = "$last" ] && continue
+
     if [ "$now" = busy ]; then
-      log "busy -> $BROWSER"
-      turn_day=$(date +%F) turn_start=$(date +%s) turn_began=$SECONDS last_poll=$SECONDS scrolled=0
-      show_page "$url"
-      unmute_reels "$url"
-      [ "$AUTOSCROLL" = on ] && start_autoscroll "$url"
-    else
-      log "idle -> $CLAUDE_APP"
-      pause_video
-      open -a "$CLAUDE_APP"
+      if [ "$last" != busy ]; then
+        log "busy"
+        turn_day=$(date +%F) turn_start=$(date +%s) turn_began=$SECONDS last_poll=$SECONDS
+        scrolled=0 shown="" held=""
+      fi
+      # Elapsed time, not one per poll: a poll can block for seconds while
+      # the feed opens.
+      since_poll=$((SECONDS - last_poll)) last_poll=$SECONDS
+      front=$(frontmost_app)
+      if [ -n "$shown" ]; then
+        [ "$front" = "$BROWSER" ] && scrolled=$((scrolled + since_poll))
+      elif [ $((SECONDS - turn_began)) -ge "$DELAY" ]; then
+        if [ "$front" = "$CLAUDE_APP" ]; then
+          log "busy -> $BROWSER"
+          show_page "$url"
+          unmute_reels "$url"
+          [ "$AUTOSCROLL" = on ] && start_autoscroll "$url"
+          shown=1
+        elif [ -z "$held" ]; then
+          log "busy, but you're in ${front:-another app}: not opening the feed"
+          held=1
+        fi
+      fi
+      stats_update "$turn_day" "$turn_start" $((SECONDS - turn_began)) "$scrolled"
+
+    elif [ "$last" = busy ]; then
+      front=$(frontmost_app)
+      if [ "$front" = "$CLAUDE_APP" ]; then
+        log "$now, you're already in $CLAUDE_APP"
+      elif [ -n "$shown" ] && [ "$front" = "$BROWSER" ]; then
+        log "$now -> $CLAUDE_APP"
+        pause_video
+        open -a "$CLAUDE_APP"
+      else
+        log "$now, you're in ${front:-another app}: notified"
+        if [ "$(claude_state_detail)" = waiting ]; then
+          notify "Claude needs you" "It's waiting for your answer"
+        else
+          notify "Claude is done" "Your turn"
+        fi
+      fi
       stats_record "$turn_day" "$turn_start" $((SECONDS - turn_began)) "$scrolled"
       turn_day=""
     fi

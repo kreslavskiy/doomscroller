@@ -8,7 +8,8 @@ back the moment it needs you.
 
 When Claude starts working, doomscroller opens the feed in your browser. When
 Claude finishes or stops to ask you something, it pauses the video and brings
-Claude back to the front.
+Claude back to the front. If you've switched to another app yourself, it
+leaves you there and sends a notification instead.
 
 macOS only. Plain bash, no dependencies beyond what ships with macOS.
 
@@ -31,8 +32,15 @@ Claude Code hooks ──▶ ~/.doomscroller/claude-status ──▶ doomscroller
    - the line is removed when the session ends.
 2. **Watcher** ([doomscroller](doomscroller), with its modules in
    [lib/](lib)). It reads that file once a
-   second. Claude counts as busy if any session is busy. On a change:
-   - **idle → busy**: shows the feed in the browser. It prefers a tab
+   second. Claude counts as busy if any session is busy.
+   - **busy**: once Claude has been busy for 3 seconds (the `delay`
+     setting) and the Claude app is in front, shows the feed in the
+     browser. So a quick reply doesn't send you to the browser and right
+     back, and if you switched to Slack after sending the prompt, you stay
+     in Slack. Come back to Claude while it's still working and the feed
+     opens then.
+
+     It prefers a tab
      already on the feed and doesn't reload it, so you keep your place.
      Otherwise it takes any tab on the same site and points it at the feed,
      for example an Instagram profile becomes Reels. Without such a tab, it
@@ -49,8 +57,10 @@ Claude Code hooks ──▶ ~/.doomscroller/claude-status ──▶ doomscroller
      video on screen finishes, it clicks the site's "next" button. Videos
      always play to the end. While Claude is idle the video is paused, so the
      feed stops too.
-   - **busy → idle/waiting**: pauses the video if the browser is still in
-     front, then switches to the Claude app.
+   - **busy → idle/waiting**: if you're in the feed, pauses the video and
+     switches to the Claude app. If you're in some other app, it doesn't
+     pull you out: it shows a notification, "Claude is done" or "Claude
+     needs you". If you're already in Claude, it does nothing.
 
 ## Install
 
@@ -197,10 +207,14 @@ mode (`-w`) it prints to the terminal instead, including every poll:
 ```
 14:26:47 watching, Claude is idle
 14:26:48 busy | idle my-project, busy doomscroller
-14:26:48 busy -> Arc
-14:26:51 idle | idle my-project, idle doomscroller
-14:26:51 idle -> Claude
-14:26:51 paused video (play key)
+14:26:48 busy
+14:26:49 busy | idle my-project, busy doomscroller
+14:26:50 busy | idle my-project, busy doomscroller
+14:26:51 busy | idle my-project, busy doomscroller
+14:26:51 busy -> Arc
+14:27:30 idle | idle my-project, idle doomscroller
+14:27:30 idle -> Claude
+14:27:30 paused video (play key)
 ```
 
 ## Stats
@@ -227,8 +241,8 @@ All time: 23h 15m scrolled, ≈ 3340 videos, since Fri 23
 Best day: Mon 26, 2h 10m
 ```
 
-Scrolled time counts only the seconds the browser was in front while Claude
-was busy. The number of videos is an estimate from that time (about 25 s
+Scrolled time counts only the seconds the browser was in front, with the
+feed open, while Claude was busy. The number of videos is an estimate from that time (about 25 s
 per reel, 30 s per short). `doomscroller stats --share` prints a line to
 post:
 
@@ -297,10 +311,12 @@ doomscroller config unset browser            # back to the default
 | `browser`    | any app in `/Applications` etc.  | `Arc`    |
 | `claude-app` | the app to return to             | `Claude` |
 | `autoscroll` | `on`, `off`                      | `off`    |
+| `delay`      | seconds busy before the feed opens | `3`    |
 
 Settings live in `~/.doomscroller/config`. For a one-off run, the environment
 variables `DOOMSCROLLER_SITE`, `DOOMSCROLLER_BROWSER`,
-`DOOMSCROLLER_CLAUDE_APP` and `DOOMSCROLLER_AUTOSCROLL` override the config.
+`DOOMSCROLLER_CLAUDE_APP`, `DOOMSCROLLER_AUTOSCROLL` and `DOOMSCROLLER_DELAY`
+override the config.
 Flags for `start` beat both: `--reels`/`--shorts` override `site`, and
 `--autoscroll`/`--no-autoscroll` override `autoscroll`. A running watcher
 picks up changes only after a restart.
@@ -354,8 +370,11 @@ granting:
   Shorts loop. Rewinding to the start during the last second does the same.
 - **The feed takes over the site's tab.** Every turn sends the Instagram (or
   YouTube) tab back to the feed, even if you were reading DMs there.
-- **Fast replies.** A reply that takes a couple of seconds still sends you to
-  the browser and right back.
+- **Notifications come from Script Editor.** They're shown with
+  `osascript`, so macOS lists them under Script Editor, and clicking one
+  opens it.
+- **"In Claude" means the app.** If Claude Code runs in a terminal, any
+  window of that terminal counts, not just the one with Claude.
 
 ## Files
 

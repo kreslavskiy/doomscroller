@@ -5,8 +5,9 @@ usage() {
   cat <<EOF
 doomscroller: watch Reels or Shorts while Claude Code works.
 
-When Claude starts working, opens the page in $BROWSER. When it stops
-(idle or waiting for you), pauses the video and brings $CLAUDE_APP back.
+When Claude has been working for $DELAY s and you're in $CLAUDE_APP, opens
+the page in $BROWSER. When it stops (idle or waiting for you), pauses the
+video and brings $CLAUDE_APP back, or notifies you if you're in another app.
 
 Usage:
   doomscroller init [--yes]
@@ -48,6 +49,7 @@ Settings:
   browser      browser app (default: Arc)
   claude-app   app to return to (default: Claude; e.g. Terminal, iTerm, Ghostty)
   autoscroll   on or off: go to the next video when one ends (default: off)
+  delay        seconds Claude must be busy before the feed opens (default: 3)
 
   Examples: doomscroller config set site shorts
             doomscroller config set browser Google Chrome
@@ -56,7 +58,7 @@ Settings:
 
   For one run, environment variables override the config:
   DOOMSCROLLER_SITE, DOOMSCROLLER_BROWSER, DOOMSCROLLER_CLAUDE_APP,
-  DOOMSCROLLER_AUTOSCROLL. Flags for start beat both.
+  DOOMSCROLLER_AUTOSCROLL, DOOMSCROLLER_DELAY. Flags for start beat both.
 
 Pausing presses keys, which needs Accessibility access for the app you run
 doomscroller from (System Settings > Privacy & Security > Accessibility).

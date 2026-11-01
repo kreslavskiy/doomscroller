@@ -176,9 +176,14 @@ follows that link to `lib/`. `files` in package.json limits what ships to
 
 - `watch_claude` polls `claude_state` every second. The aggregate state is
   `busy` if any line is `busy`. Everything else, including `waiting`, counts
-  as idle. It acts only on transitions, and starts from `idle`, so if Claude
-  is already busy at start, the first poll opens the page.
-- **busy**:
+  as idle. It starts from `idle`, so if Claude is already busy at start, the
+  first polls count as a new turn.
+- **busy** (every poll of a turn, until the feed is shown): once the turn is
+  `$DELAY` seconds old and `frontmost_app` is `$CLAUDE_APP`, it shows the
+  feed (the steps below) and sets `shown`. If another app is in front, it
+  logs that once (`held`) and keeps checking, so coming back to Claude
+  mid-turn opens the feed. The delay also keeps quick replies from flashing
+  the browser.
   1. `show_page` runs `tab_script`. It picks the feed's tab with
      `FIND_TAB_START`: first a tab whose URL starts with the feed URL, then
      any tab on the domain. It points that tab at the feed unless it's
@@ -193,11 +198,14 @@ follows that link to `lib/`. `files` in package.json limits what ships to
      feed URL and `NEXT_BUTTON`, once per page load
      (`window.__doomscrollerScroll`). From then on, the page itself clicks
      "next" whenever the on-screen video finishes. Bash doesn't poll for it.
-- **idle**: `pause_video` presses the site's pause key, but only if the
-  browser is the frontmost app, then the watcher runs `open -a "$CLAUDE_APP"`.
+- **idle** (busy → idle): depends on the frontmost app. `$CLAUDE_APP`: do
+  nothing. The browser, with the feed shown this turn: `pause_video`, then
+  `open -a "$CLAUDE_APP"`. Anything else: `notify` ("Claude is done", or
+  "Claude needs you" when `claude_state_detail` is `waiting`) and don't
+  switch. `pause_video` itself still checks the browser is in front.
 - **Stats**: every busy turn is recorded. On idle → busy the loop notes the
   day, the start time and `$SECONDS`. On each busy poll it adds the seconds
-  since the last poll to `scrolled` if the browser is in front (elapsed
+  since the last poll to `scrolled` if the feed was shown and the browser is in front (elapsed
   time, since a poll can block for seconds while Reels unmute) and rewrites
   `$CURRENT_FILE`. On busy → idle, or when stopped (a TERM/INT trap), it
   appends the turn to `$HISTORY_FILE` and deletes the current file. The

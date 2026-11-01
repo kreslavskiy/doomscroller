@@ -15,6 +15,14 @@ frontmost_app() {
   lsappinfo info -only name "$(lsappinfo front)" | cut -d'"' -f4
 }
 
+# Shows a macOS notification; needs no permissions. The text goes in as
+# arguments, not into the script. Usage: notify <title> <text>
+notify() {
+  osascript -e 'on run argv' \
+    -e 'display notification (item 2 of argv) with title (item 1 of argv)' \
+    -e 'end run' "$1" "$2" > /dev/null 2>&1
+}
+
 # Presses a key in the frontmost app, by macOS key code (49 is space, 105 is F13).
 press_key_code() {
   osascript -e "tell application \"System Events\" to key code $1" > /dev/null 2>&1

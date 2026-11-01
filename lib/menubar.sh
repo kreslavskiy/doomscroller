@@ -146,7 +146,7 @@ menu_share() {
   # pbcopy reads its input in the locale's encoding, and SwiftBar runs
   # plugins without LANG, which means MacRoman: "≈" would turn into "‚âà".
   printf '%s' "$line" | LANG=en_US.UTF-8 pbcopy
-  osascript -e 'display notification "Paste it anywhere" with title "doomscroller stats copied"' > /dev/null 2>&1
+  notify "doomscroller stats copied" "Paste it anywhere"
 }
 
 # A menu click that changes a setting: saves it, and restarts the watcher if
