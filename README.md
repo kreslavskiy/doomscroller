@@ -181,6 +181,7 @@ doomscroller start --shorts     # YouTube Shorts this time
 doomscroller start --autoscroll # go to the next video when one ends
 doomscroller start -w           # stay in the terminal and log Claude's state every second
 doomscroller status             # running? what is Claude doing?
+doomscroller stats              # how long you scrolled while Claude worked
 doomscroller stop
 doomscroller menubar            # add the menu bar icon
 doomscroller --help
@@ -201,6 +202,42 @@ mode (`-w`) it prints to the terminal instead, including every poll:
 14:26:51 idle -> Claude
 14:26:51 paused video (play key)
 ```
+
+## Stats
+
+`doomscroller stats` shows how long Claude worked and how much of that you
+spent in the feed:
+
+```
+Today
+  Claude worked  1h 42m in 23 turns
+  You scrolled   1h 18m, ≈ 187 videos (76% of Claude's time)
+
+Last 7 days
+  Mon 26  ████████████████████  2h 10m
+  Tue 27  ██████████████        1h 31m
+  Wed 28  ████████              52m
+  Thu 29                        -
+  Fri 30  █████████████████     1h 51m
+  Sat 31  ███                   18m
+  Sun 01  ████████████          1h 18m
+  8h 00m scrolled, ≈ 1150 videos, while Claude worked 11h 25m
+
+All time: 23h 15m scrolled, ≈ 3340 videos, since Fri 23
+Best day: Mon 26, 2h 10m
+```
+
+Scrolled time counts only the seconds the browser was in front while Claude
+was busy. The number of videos is an estimate from that time (about 25 s
+per reel, 30 s per short). `doomscroller stats --share` prints a line to
+post:
+
+```
+Claude worked 1h 42m for me today, and I doomscrolled 1h 18m of it (≈ 187 videos) 🍿 https://github.com/kreslavskiy/doomscroller
+```
+
+Stats start with the first turn doomscroller watches and stay in
+`~/.doomscroller/history`.
 
 ## Menu bar
 
@@ -225,9 +262,16 @@ shows what's going on:
 | ▶ outline       | 💤   | Claude is idle              |
 | ▶ crossed out   | ⏹    | doomscroller is off         |
 
-The menu lists your Claude sessions and their states, turns doomscroller on
-and off, switches between Reels and Shorts, toggles autoscroll and opens the
-log. Changing the feed or autoscroll there saves it to the config and
+Next to the icon is how long you've scrolled today, ticking up while you
+scroll.
+
+The menu lists your Claude sessions and their states, and today's
+[stats](#stats): time scrolled, the estimated videos, the share of
+Claude's time, the last 7 days and your best day (or a 🏆 when today is
+the new record). "Copy for sharing" puts the `stats --share` line on the
+clipboard, and "Show all stats" opens the full `stats` in Terminal. The
+menu also turns doomscroller on and off, switches between Reels and
+Shorts, toggles autoscroll and opens the log. Changing the feed or autoscroll there saves it to the config and
 restarts a running doomscroller, so it applies at once.
 
 When you turn doomscroller on from the menu, it runs under SwiftBar (or
@@ -321,6 +365,8 @@ granting:
 | `~/.doomscroller/config`        | settings (`key=value` lines)        |
 | `~/.doomscroller/log`           | background watcher log              |
 | `~/.doomscroller/pid`           | pid of the running watcher          |
+| `~/.doomscroller/history`       | stats: one line per Claude turn     |
+| `~/.doomscroller/current`       | stats for the turn that's on now    |
 
 ## License
 

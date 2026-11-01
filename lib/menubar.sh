@@ -5,12 +5,12 @@
 # doomscroller again with the item's arguments.
 
 # Prints the title: an SF Symbol in SwiftBar (which sets $SWIFTBAR), an emoji
-# in xbar. Usage: menu_icon <sf symbol> <emoji>
+# in xbar, then the text if any. Usage: menu_icon <sf symbol> <emoji> [text]
 menu_icon() {
   if [ -n "$SWIFTBAR" ]; then
-    echo "| sfimage=$1"
+    echo "${3:+$3 }| sfimage=$1"
   else
-    echo "$2"
+    echo "$2${3:+ $3}"
   fi
 }
 
@@ -51,7 +51,11 @@ on_if() {
 # separated by "---"; a "--" prefix puts an item in a submenu.
 print_menu() {
   local state site="$SITE" autoscroll="$AUTOSCROLL" running="" sessions line
+  local turns busy scrolled videos today=""
   state=$(claude_state_detail)
+  read -r turns busy scrolled videos <<< "$(stats_sum "$(date +%F)")"
+  # Today's scrolling, next to the icon.
+  [ "$scrolled" -gt 0 ] && today=$(fmt_duration "$scrolled")
   if is_running; then
     running=1
     # Show what the watcher really uses, which flags for start may have changed.
@@ -60,12 +64,12 @@ print_menu() {
   fi
 
   if [ -z "$running" ]; then
-    menu_icon play.slash ⏹
+    menu_icon play.slash ⏹ "$today"
   else
     case "$state" in
-      busy)    menu_icon play.rectangle.fill 🍿 ;;
-      waiting) menu_icon hand.raised.fill ✋ ;;
-      *)       menu_icon play.rectangle 💤 ;;
+      busy)    menu_icon play.rectangle.fill 🍿 "$today" ;;
+      waiting) menu_icon hand.raised.fill ✋ "$today" ;;
+      *)       menu_icon play.rectangle 💤 "$today" ;;
     esac
   fi
   echo "---"
@@ -83,6 +87,9 @@ print_menu() {
       echo "--${line#* }: ${line%% *}"
     done <<< "$sessions"
   fi
+  echo "---"
+
+  print_menu_stats "$busy" "$scrolled" "$videos"
   echo "---"
 
   if [ -n "$running" ]; then
@@ -105,6 +112,39 @@ print_menu() {
   if [ -f "$LOG_FILE" ]; then
     echo "Open log | bash=/usr/bin/open param1=-t param2=\"$LOG_FILE\" terminal=false"
   fi
+}
+
+# Prints the stats part of the menu: today, the last 7 days, the best day.
+# Usage: print_menu_stats <busy today> <scrolled today> <videos today>
+print_menu_stats() {
+  local busy="$1" scrolled="$2" videos="$3" week best_day best
+  if [ -z "$(stats_lines)" ]; then
+    echo "No stats yet"
+    return
+  fi
+  echo "Today: scrolled $(fmt_duration "$scrolled"), ≈ $videos videos"
+  if [ "$busy" -gt 0 ]; then
+    echo "--Claude worked $(fmt_duration "$busy"), you scrolled $(percent "$scrolled" "$busy") of it"
+  fi
+  read -r _ _ week _ <<< "$(stats_sum $(last_days 7))"
+  echo "Last 7 days: $(fmt_duration "$week")"
+  read -r best_day best <<< "$(stats_best_day)"
+  if [ "$best_day" = "$(date +%F)" ] && [ "$(stats_first_day)" != "$best_day" ]; then
+    echo "New record today! 🏆"
+  elif [ -n "$best_day" ]; then
+    echo "Best day: $(fmt_day "$best_day"), $(fmt_duration "$best")"
+  fi
+  echo "Show all stats | bash=\"$DOOMSCROLLER\" param1=stats terminal=true"
+  menu_item "Copy for sharing" _menu share
+}
+
+# A menu click on "Copy for sharing": puts share_line on the clipboard and
+# says so in a notification.
+menu_share() {
+  local line
+  line=$(share_line) || return
+  printf '%s' "$line" | pbcopy
+  osascript -e 'display notification "Paste it anywhere" with title "doomscroller stats copied"' > /dev/null 2>&1
 }
 
 # A menu click that changes a setting: saves it, and restarts the watcher if

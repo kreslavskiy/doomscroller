@@ -23,3 +23,12 @@ site_name() {
     *)      echo "$1" ;;
   esac
 }
+
+# Prints roughly how many seconds you spend per video, to estimate how many
+# videos a scroll was. A guess, so stats show the count with "≈".
+site_video_seconds() {
+  case "$1" in
+    shorts) echo 30 ;;
+    *)      echo 25 ;;
+  esac
+}

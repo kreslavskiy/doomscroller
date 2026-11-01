@@ -15,13 +15,14 @@ hooks/session-status.sh ──▶ ~/.doomscroller/claude-status ──▶ doomsc
 ```
 doomscroller            entry point: finds lib/ (following the symlink), sources the modules, calls main
 lib/
-  core.sh               paths (STATUS_FILE, STATE_DIR, PID/LOG/CONFIG_FILE) and log()
+  core.sh               paths (STATUS_FILE, STATE_DIR, PID/LOG/CONFIG_FILE, HISTORY/CURRENT_FILE) and log()
   settings.sh           settings: env var > config file > default; load_settings, validate, save
   sites.sh              use_site: per-feed URL, PAUSE_KEY, NEXT_BUTTON
   claude.sh             reads the status file: claude_state, session_states
   macos.sh              apps and keyboard: app_exists, frontmost_app, press_key_code, press_play_pause_key
   browser.sh            AppleScript for tabs: show_page (find/reuse/open the tab), run_tab_js, page_js
   player.sh             the video: pause_video, unmute_reels, start_autoscroll
+  stats.sh              scroll stats: record turns (stats_update, stats_record), sum them (stats_sum), print_stats, share_line
   watcher.sh            the process: watch_claude loop, start_watcher (background), run_watcher_here (-w), stop_watcher
   menubar.sh            the SwiftBar/xbar menu: print_menu (icon, sessions, on/off, feed, autoscroll), menu_set (a click on a setting)
   setup.sh              init (put the command on PATH, copy the hook, merge it into ~/.claude/settings.json, ask preferences, check permissions, add the menu bar plugin) and uninstall
@@ -42,15 +43,16 @@ package.json            the npm package: name, version (the only place it's kept
 Modules only define functions and constants. Nothing runs when a module is
 sourced, apart from the constants in `core.sh`, `settings.sh`, `browser.sh`
 and `setup.sh`. The entry point sources them in a fixed order
-(`core settings sites claude macos browser player watcher menubar setup cli`), then runs
+(`core settings sites claude macos browser player stats watcher menubar setup cli`), then runs
 `load_settings` and `main "$@"`.
 
 Calls go downward only:
 
-- `cli` → `setup`, `menubar`, `watcher`, `settings`, `sites`, `claude`
-- `menubar` → `watcher` (`is_running`, `watcher_settings`, start/stop), `settings`, `sites`, `claude`
+- `cli` → `setup`, `menubar`, `stats`, `watcher`, `settings`, `sites`, `claude`
+- `menubar` → `stats`, `watcher` (`is_running`, `watcher_settings`, start/stop), `settings`, `sites`, `claude`
 - `setup` → `settings`, `browser` (`tab_script`, to tell if the browser is scriptable), `macos`
-- `watcher` → `browser`, `player`, `claude`
+- `watcher` → `stats`, `browser`, `player`, `claude`
+- `stats` → `sites` (`site_video_seconds`)
 - `player` → `browser`, `macos`
 - `browser` → `core`
 - `settings` → `macos` (`app_exists`)
@@ -74,7 +76,7 @@ Set once, then read by everyone:
 
 `init [--yes]`, `uninstall [--yes]`,
 `start [--reels|--shorts] [--autoscroll|--no-autoscroll] [-w] [url]`, `stop`,
-`status`, `config [list|get|set|unset]`, `--help` and `--version`. There is also an
+`status`, `stats [--share]`, `menubar [uninstall]`, `config [list|get|set|unset]`, `--help` and `--version`. There is also an
 internal `_watch <site> <autoscroll> <url>`. `start_watcher` re-runs the
 command with it as the background process, passing the already-resolved
 settings so flags survive.
@@ -117,6 +119,9 @@ command again (`bash=` with `param1=`…) with `start`, `stop` or
 `_menu set <key> <value>`, which saves the setting and restarts a running
 watcher.
 
+- The title is today's scrolled time next to the icon. The stats part of
+  the menu is `print_menu_stats`. "Copy for sharing" runs `_menu share`,
+  which pipes `share_line` to `pbcopy` and shows a notification.
 - SwiftBar sets `$SWIFTBAR`: the title is an SF Symbol (`sfimage=`) and
   checkmarks are `checked=true`. xbar gets emoji and a ✓ in the text.
 - While the watcher runs, the menu shows its real site and autoscroll, read
@@ -188,6 +193,25 @@ follows that link to `lib/`. `files` in package.json limits what ships to
      "next" whenever the on-screen video finishes. Bash doesn't poll for it.
 - **idle**: `pause_video` presses the site's pause key, but only if the
   browser is the frontmost app, then the watcher runs `open -a "$CLAUDE_APP"`.
+- **Stats**: every busy turn is recorded. On idle → busy the loop notes the
+  day, the start time and `$SECONDS`. On each busy poll it adds the seconds
+  since the last poll to `scrolled` if the browser is in front (elapsed
+  time, since a poll can block for seconds while Reels unmute) and rewrites
+  `$CURRENT_FILE`. On busy → idle, or when stopped (a TERM/INT trap), it
+  appends the turn to `$HISTORY_FILE` and deletes the current file. The
+  per-second path uses only builtins (`$SECONDS`, `printf`), no forks.
+
+### Stats files
+
+`$HISTORY_FILE` has one tab-separated line per turn:
+`day  start_epoch  busy_seconds  scrolled_seconds  videos  site`.
+`videos` is `scrolled / site_video_seconds`, rounded, stored at record time.
+`$CURRENT_FILE` is the same line for the turn that's on now. `stats_lines`
+adds it to the history if it was written in the last 30 s, so a file left
+by a killed watcher is ignored. The old `log` has no dates, which is why
+stats have their own file. Days are local dates as of a turn's start; the
+last 7 days come from `date -v-Nd`. Bars are padded by hand, because
+`printf` pads by bytes and `█` is three.
 
 ## Non-obvious decisions, keep them
 

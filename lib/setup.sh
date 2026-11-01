@@ -472,7 +472,7 @@ run_uninstall() {
   uninstall_menubar
   step "Settings and log"
   if [ -d "$STATE_DIR" ]; then
-    ask_yes "Delete $(short "$STATE_DIR") (your settings and the log)?" &&
+    ask_yes "Delete $(short "$STATE_DIR") (your settings, log and stats)?" &&
       rm -rf "$STATE_DIR" && ok "deleted $(short "$STATE_DIR")"
   else
     ok "no $(short "$STATE_DIR")"

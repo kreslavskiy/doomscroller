@@ -15,6 +15,7 @@ Usage:
   doomscroller start [--reels | --shorts] [--autoscroll | --no-autoscroll] [--watch] [url]
   doomscroller stop
   doomscroller status
+  doomscroller stats [--share]
   doomscroller config [list | get <key> | set <key> <value> | unset <key>]
   doomscroller --help | --version
 
@@ -27,6 +28,8 @@ Commands:
   start        start watching in the background (log: ~/.doomscroller/log)
   stop         stop watching
   status       show whether it's running and what Claude is doing
+  stats        how long you scrolled while Claude worked: today, the last 7
+               days, all time. --share prints a line to post instead
   config       show or change settings (saved in ~/.doomscroller/config)
 
 Flags for init and uninstall:
@@ -143,6 +146,16 @@ cmd_menubar() {
   esac
 }
 
+# doomscroller stats [--share]
+cmd_stats() {
+  case "$1" in
+    "") print_stats ;;
+    --share) share_line ;;
+    -h|--help) usage ;;
+    *) usage >&2; exit 1 ;;
+  esac
+}
+
 cmd_status() {
   if is_running; then
     echo "running (pid $(cat "$PID_FILE")), Claude is $(claude_state)"
@@ -202,11 +215,16 @@ main() {
     start)  cmd_start "${@:2}" ;;
     stop)   stop_watcher ;;
     status) cmd_status ;;
+    stats)  cmd_stats "${@:2}" ;;
     config) cmd_config "${@:2}" ;;
     menubar) cmd_menubar "${@:2}" ;;
     # The menu bar plugin: prints the menu, or handles a click on a setting.
     _menu)
-      if [ "$2" = set ]; then menu_set "$3" "$4"; else print_menu; fi ;;
+      case "$2" in
+        set)   menu_set "$3" "$4" ;;
+        share) menu_share ;;
+        *)     print_menu ;;
+      esac ;;
     # The background watcher started by start_watcher.
     _watch)
       use_site "$2"

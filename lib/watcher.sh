@@ -9,15 +9,27 @@ is_running() {
 # With "verbose", also logs every poll. Usage: watch_claude <url> [verbose]
 watch_claude() {
   local url="$1" verbose="$2" now
+  # The busy turn for stats: its day and start, $SECONDS when it began and at
+  # the last poll, and the seconds the browser was in front.
+  local turn_day="" turn_start turn_began last_poll scrolled
+  # Stopping in the middle of a turn still records it.
+  trap '[ -n "$turn_day" ] && stats_record "$turn_day" "$turn_start" $((SECONDS - turn_began)) "$scrolled"; exit 0' TERM INT
   log "watching, Claude is $(claude_state)"
   # Start from idle, so if Claude is already busy the first poll opens the page.
   local last=idle
   while sleep 1; do
     now=$(claude_state)
     [ -n "$verbose" ] && log "$now | $(session_states)"
+    if [ "$now" = busy ] && [ "$last" = busy ]; then
+      # Counted by elapsed time, since a poll can take longer than a second.
+      [ "$(frontmost_app)" = "$BROWSER" ] && scrolled=$((scrolled + SECONDS - last_poll))
+      last_poll=$SECONDS
+      stats_update "$turn_day" "$turn_start" $((SECONDS - turn_began)) "$scrolled"
+    fi
     [ "$now" = "$last" ] && continue
     if [ "$now" = busy ]; then
       log "busy -> $BROWSER"
+      turn_day=$(date +%F) turn_start=$(date +%s) turn_began=$SECONDS last_poll=$SECONDS scrolled=0
       show_page "$url"
       unmute_reels "$url"
       [ "$AUTOSCROLL" = on ] && start_autoscroll "$url"
@@ -25,6 +37,8 @@ watch_claude() {
       log "idle -> $CLAUDE_APP"
       pause_video
       open -a "$CLAUDE_APP"
+      stats_record "$turn_day" "$turn_start" $((SECONDS - turn_began)) "$scrolled"
+      turn_day=""
     fi
     last=$now
   done
